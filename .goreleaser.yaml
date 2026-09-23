@@ -1,0 +1,44 @@
+# Builds the rdnsctl binaries. The Go module itself is released by tagging
+# (vX.Y.Z); this only adds the CLI archives to the GitHub release.
+version: 2
+project_name: rdnsctl
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: rdnsctl
+    main: ./cmd/rdnsctl
+    binary: rdnsctl
+    env:
+      - CGO_ENABLED=0
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w -X main.version={{ .Version }}
+    goos: [linux, darwin, windows]
+    goarch: [amd64, arm64]
+
+archives:
+  - id: rdnsctl
+    formats: [tar.gz]
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    name_template: "rdnsctl_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    files:
+      - LICENSE
+      - NOTICE
+      - README.md
+
+checksum:
+  name_template: "rdnsctl_{{ .Version }}_SHA256SUMS"
+  algorithm: sha256
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
