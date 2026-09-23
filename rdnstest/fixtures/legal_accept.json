@@ -1,0 +1,16 @@
+{
+  "status": 200,
+  "body": {
+    "current": {
+      "terms": "2026-09-23",
+      "privacy": "2026-09-23"
+    },
+    "accepted": {
+      "acceptedTermsVersion": "2026-09-23",
+      "acceptedPrivacyVersion": "2026-09-23",
+      "acceptedAt": "2026-09-23T20:25:39.168432751Z",
+      "ip": "198.51.100.7"
+    },
+    "required": false
+  }
+}

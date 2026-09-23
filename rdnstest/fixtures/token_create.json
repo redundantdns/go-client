@@ -1,0 +1,21 @@
+{
+  "status": 201,
+  "body": {
+    "record": {
+      "tokenId": "tok-4np3n3wxbtygpl7z",
+      "userId": "usr-kqe6swvxjkdcznxq",
+      "name": "fixtures",
+      "prefix": "rdns_…75ba",
+      "scopes": [
+        "zones:read",
+        "zones:write",
+        "connections:read",
+        "connections:write"
+      ],
+      "ipAllowlist": [],
+      "createdAt": "2026-09-23T20:25:39.205875575Z",
+      "expiresAt": "2026-09-24T20:25:39.205861306Z"
+    },
+    "token": "rdns_REDACTED-w3qlj324qqyouqbh_tok-4np3n3wxbtygpl7z_a99288218a98d69d9ac58a0104e04c44a74680c5adb5d14062f9f7b9ecfd75ba"
+  }
+}

@@ -1,0 +1,169 @@
+{
+  "status": 200,
+  "body": [
+    {
+      "id": "aud-qnwp2nqo6nyw7qjo",
+      "orgId": "org-w3qlj324qqyouqbh",
+      "at": "2026-09-23T20:25:43.086029532Z",
+      "actorId": "usr-kqe6swvxjkdcznxq",
+      "source": "system",
+      "action": "zone.adopt",
+      "zoneId": "zone-t7jtq3mpbhvvq4hu",
+      "target": {
+        "type": "attachment",
+        "id": "att-uk5ruq76lioyck5u",
+        "label": "fake"
+      },
+      "details": {
+        "changes": {
+          "create": [
+            "www A"
+          ],
+          "update": [],
+          "delete": []
+        },
+        "skipped": []
+      }
+    },
+    {
+      "id": "aud-aytfijnjflfoi3ll",
+      "orgId": "org-w3qlj324qqyouqbh",
+      "at": "2026-09-23T20:25:43.045427959Z",
+      "actorId": "usr-kqe6swvxjkdcznxq",
+      "source": "api",
+      "action": "recordSet.remove",
+      "zoneId": "zone-t7jtq3mpbhvvq4hu",
+      "target": {
+        "type": "recordSet",
+        "id": "www|A",
+        "label": "www A"
+      },
+      "details": {
+        "before": {
+          "name": "www",
+          "type": "A",
+          "ttl": 300,
+          "values": [
+            "192.0.2.10"
+          ]
+        },
+        "serial": 2026092304
+      },
+      "ip": "198.51.100.7"
+    },
+    {
+      "id": "aud-rjvlcg5htkwchl24",
+      "orgId": "org-w3qlj324qqyouqbh",
+      "at": "2026-09-23T20:25:42.945449437Z",
+      "actorId": "usr-kqe6swvxjkdcznxq",
+      "source": "api",
+      "action": "zone.adopt.request",
+      "zoneId": "zone-t7jtq3mpbhvvq4hu",
+      "target": {
+        "type": "attachment",
+        "id": "att-uk5ruq76lioyck5u"
+      },
+      "ip": "198.51.100.7"
+    },
+    {
+      "id": "aud-gzrreai4u33gp5h4",
+      "orgId": "org-w3qlj324qqyouqbh",
+      "at": "2026-09-23T20:25:39.63167496Z",
+      "actorId": "usr-kqe6swvxjkdcznxq",
+      "source": "system",
+      "action": "zone.reconcile",
+      "zoneId": "zone-t7jtq3mpbhvvq4hu",
+      "target": {
+        "type": "attachment",
+        "id": "att-uk5ruq76lioyck5u",
+        "label": "fake"
+      },
+      "details": {
+        "create": 1,
+        "update": 1,
+        "delete": 0,
+        "keys": {
+          "create": [
+            "www A"
+          ],
+          "update": [
+            "@ NS"
+          ],
+          "delete": []
+        }
+      }
+    },
+    {
+      "id": "aud-an5wu4z723aqtpqh",
+      "orgId": "org-w3qlj324qqyouqbh",
+      "at": "2026-09-23T20:25:39.613321131Z",
+      "actorId": "usr-kqe6swvxjkdcznxq",
+      "source": "api",
+      "action": "recordSet.create",
+      "zoneId": "zone-t7jtq3mpbhvvq4hu",
+      "target": {
+        "type": "recordSet",
+        "id": "www|A",
+        "label": "www A"
+      },
+      "details": {
+        "after": {
+          "name": "www",
+          "type": "A",
+          "ttl": 300,
+          "values": [
+            "192.0.2.10"
+          ]
+        },
+        "before": null,
+        "serial": 2026092303
+      },
+      "ip": "198.51.100.7"
+    },
+    {
+      "id": "aud-khmfi4jn6o2wh5qg",
+      "orgId": "org-w3qlj324qqyouqbh",
+      "at": "2026-09-23T20:25:39.541105307Z",
+      "actorId": "usr-kqe6swvxjkdcznxq",
+      "source": "api",
+      "action": "zone.attach.create",
+      "zoneId": "zone-t7jtq3mpbhvvq4hu",
+      "target": {
+        "type": "attachment",
+        "id": "att-uk5ruq76lioyck5u",
+        "label": "Fixture fake"
+      },
+      "details": {
+        "accessLevel": "zone_admin",
+        "nameServers": [
+          "ns1.fixture-token.fake-dns.test.",
+          "ns2.fixture-token.fake-dns.test."
+        ],
+        "nsPlan": [
+          "ns1.fixture-token.fake-dns.test.",
+          "ns2.fixture-token.fake-dns.test."
+        ],
+        "provider": "fake",
+        "providerZoneId": "fakezone-772ca10479cb"
+      }
+    },
+    {
+      "id": "aud-kyd25xrksnl7z2pd",
+      "orgId": "org-w3qlj324qqyouqbh",
+      "at": "2026-09-23T20:25:39.447052956Z",
+      "actorId": "usr-kqe6swvxjkdcznxq",
+      "source": "api",
+      "action": "zone.create",
+      "zoneId": "zone-t7jtq3mpbhvvq4hu",
+      "target": {
+        "type": "zone",
+        "id": "zone-t7jtq3mpbhvvq4hu",
+        "label": "fixtures-1790195138.example.com"
+      },
+      "details": {
+        "defaultTtl": 300
+      },
+      "ip": "198.51.100.7"
+    }
+  ]
+}

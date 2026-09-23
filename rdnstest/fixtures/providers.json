@@ -1,0 +1,113 @@
+{
+  "status": 200,
+  "body": [
+    {
+      "id": "fake",
+      "credentialFields": [
+        "token"
+      ],
+      "secretFields": [
+        "token"
+      ],
+      "scopeFields": [],
+      "zoneIdLabel": "zoneId",
+      "capabilities": {
+        "recordTypes": [
+          "A",
+          "AAAA",
+          "CNAME",
+          "MX",
+          "TXT",
+          "SRV",
+          "CAA",
+          "NS",
+          "PTR"
+        ],
+        "minTtl": 1,
+        "maxTtl": 604800,
+        "wildcard": true,
+        "apexNsEditable": true,
+        "maxValuesPerSet": 100,
+        "txtMaxLen": 4000,
+        "cnameAtApex": false
+      },
+      "hasDocs": false,
+      "managed": true
+    },
+    {
+      "id": "oci",
+      "credentialFields": [
+        "tenancyId",
+        "userId",
+        "fingerprint",
+        "privateKey"
+      ],
+      "secretFields": [
+        "privateKey"
+      ],
+      "scopeFields": [
+        "compartmentId",
+        "region"
+      ],
+      "zoneIdLabel": "zoneOcid",
+      "capabilities": {
+        "recordTypes": [
+          "A",
+          "AAAA",
+          "CNAME",
+          "MX",
+          "TXT",
+          "SRV",
+          "CAA",
+          "NS",
+          "PTR"
+        ],
+        "minTtl": 1,
+        "maxTtl": 604800,
+        "wildcard": true,
+        "apexNsEditable": true,
+        "maxValuesPerSet": 100,
+        "txtMaxLen": 4000,
+        "cnameAtApex": false
+      },
+      "hasDocs": true,
+      "managed": false
+    },
+    {
+      "id": "route53",
+      "credentialFields": [
+        "accessKeyId",
+        "secretAccessKey"
+      ],
+      "secretFields": [
+        "secretAccessKey"
+      ],
+      "scopeFields": [
+        "region"
+      ],
+      "zoneIdLabel": "hostedZoneId",
+      "capabilities": {
+        "recordTypes": [
+          "A",
+          "AAAA",
+          "CNAME",
+          "MX",
+          "TXT",
+          "SRV",
+          "CAA",
+          "NS",
+          "PTR"
+        ],
+        "minTtl": 0,
+        "maxTtl": 2147483647,
+        "wildcard": true,
+        "apexNsEditable": true,
+        "maxValuesPerSet": 100,
+        "txtMaxLen": 4000,
+        "cnameAtApex": false
+      },
+      "hasDocs": true,
+      "managed": false
+    }
+  ]
+}

@@ -1,0 +1,7 @@
+{
+  "status": 404,
+  "body": {
+    "error": "alertNotFound",
+    "message": "no firing alert with this id"
+  }
+}

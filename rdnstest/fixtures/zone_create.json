@@ -1,0 +1,23 @@
+{
+  "status": 201,
+  "body": {
+    "zoneId": "zone-t7jtq3mpbhvvq4hu",
+    "name": "fixtures-1790195138.example.com",
+    "serial": 2026092301,
+    "settings": {
+      "defaultTtl": 300
+    },
+    "nsPlan": [],
+    "recordSets": [],
+    "attachments": [],
+    "capabilities": null,
+    "status": {
+      "orgId": "org-w3qlj324qqyouqbh",
+      "zoneId": "zone-t7jtq3mpbhvvq4hu",
+      "attachments": {},
+      "updatedAt": "0001-01-01T00:00:00Z"
+    },
+    "createdAt": "2026-09-23T20:25:39Z",
+    "updatedAt": "2026-09-23T20:25:39Z"
+  }
+}

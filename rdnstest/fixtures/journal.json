@@ -1,0 +1,58 @@
+{
+  "status": 200,
+  "body": [
+    {
+      "zoneId": "zone-t7jtq3mpbhvvq4hu",
+      "serial": 2026092303,
+      "at": "2026-09-23T20:25:39.59478912Z",
+      "actorId": "usr-kqe6swvxjkdcznxq",
+      "action": "recordSet.create",
+      "changes": {
+        "create": 1,
+        "update": 0,
+        "delete": 0,
+        "keys": {
+          "create": [
+            "www A"
+          ],
+          "update": [],
+          "delete": []
+        }
+      }
+    },
+    {
+      "zoneId": "zone-t7jtq3mpbhvvq4hu",
+      "serial": 2026092302,
+      "at": "2026-09-23T20:25:39.506957652Z",
+      "actorId": "usr-kqe6swvxjkdcznxq",
+      "action": "zone.attach.create",
+      "changes": {
+        "create": 0,
+        "update": 0,
+        "delete": 0,
+        "keys": {
+          "create": null,
+          "update": null,
+          "delete": null
+        }
+      }
+    },
+    {
+      "zoneId": "zone-t7jtq3mpbhvvq4hu",
+      "serial": 2026092301,
+      "at": "2026-09-23T20:25:39.427618154Z",
+      "actorId": "usr-kqe6swvxjkdcznxq",
+      "action": "zone.create",
+      "changes": {
+        "create": 0,
+        "update": 0,
+        "delete": 0,
+        "keys": {
+          "create": null,
+          "update": null,
+          "delete": null
+        }
+      }
+    }
+  ]
+}

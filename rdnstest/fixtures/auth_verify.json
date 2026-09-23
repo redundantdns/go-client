@@ -1,0 +1,18 @@
+{
+  "status": 200,
+  "body": {
+    "orgs": [
+      {
+        "name": "fixtures-1790195138's organization",
+        "orgId": "org-w3qlj324qqyouqbh",
+        "plan": "free",
+        "role": "owner"
+      }
+    ],
+    "user": {
+      "email": "fixtures-1790195138@example.com",
+      "platformAdmin": false,
+      "userId": "usr-kqe6swvxjkdcznxq"
+    }
+  }
+}

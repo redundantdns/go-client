@@ -1,0 +1,141 @@
+{
+  "status": 200,
+  "body": [
+    {
+      "zoneId": "zone-t7jtq3mpbhvvq4hu",
+      "name": "fixtures-1790195138.example.com",
+      "serial": 2026092303,
+      "settings": {
+        "defaultTtl": 300
+      },
+      "nsPlan": [
+        "ns1.fixture-token.fake-dns.test.",
+        "ns2.fixture-token.fake-dns.test."
+      ],
+      "recordSets": null,
+      "attachments": [
+        {
+          "attachmentId": "att-uk5ruq76lioyck5u",
+          "connectionId": "conn-rg2eredg4yzwxb75",
+          "provider": "fake",
+          "accessLevel": "zone_admin",
+          "providerZoneId": "fakezone-772ca10479cb",
+          "nameServers": [
+            "ns1.fixture-token.fake-dns.test.",
+            "ns2.fixture-token.fake-dns.test."
+          ],
+          "createdRemote": true,
+          "createdAt": "2026-09-23T20:25:39.489178141Z",
+          "label": "Fixture fake"
+        }
+      ],
+      "capabilities": {
+        "recordTypes": [
+          "A",
+          "AAAA",
+          "CNAME",
+          "MX",
+          "TXT",
+          "SRV",
+          "CAA",
+          "NS",
+          "PTR"
+        ],
+        "minTtl": 1,
+        "maxTtl": 604800,
+        "wildcard": true,
+        "apexNsEditable": true,
+        "maxValuesPerSet": 100,
+        "txtMaxLen": 4000,
+        "cnameAtApex": false,
+        "providers": [
+          "fake"
+        ]
+      },
+      "status": {
+        "orgId": "org-w3qlj324qqyouqbh",
+        "zoneId": "zone-t7jtq3mpbhvvq4hu",
+        "attachments": {
+          "att-uk5ruq76lioyck5u": {
+            "attachmentId": "att-uk5ruq76lioyck5u",
+            "state": "in_sync",
+            "appliedSerial": 2026092303,
+            "lastSyncAt": "2026-09-23T20:25:39.818973024Z",
+            "lastVerifyAt": "2026-09-23T20:25:39.860797885Z",
+            "lastDiff": {
+              "create": 0,
+              "update": 0,
+              "delete": 0,
+              "keys": {
+                "create": [],
+                "update": [],
+                "delete": []
+              }
+            },
+            "health": "ok",
+            "lastProbeAt": "2026-09-23T20:25:39.754305604Z",
+            "updatedAt": "2026-09-23T20:25:39.863300788Z"
+          }
+        },
+        "delegation": {
+          "state": "pending",
+          "seenNs": [],
+          "missing": [
+            "ns1.fixture-token.fake-dns.test.",
+            "ns2.fixture-token.fake-dns.test."
+          ],
+          "extra": [],
+          "checkedAt": "2026-09-23T20:25:39.713646922Z",
+          "nsPlan": [
+            "ns1.fixture-token.fake-dns.test.",
+            "ns2.fixture-token.fake-dns.test."
+          ],
+          "answers": [
+            {
+              "nameServer": "ns1.fixture-token.fake-dns.test.",
+              "responded": false,
+              "ns": [],
+              "latencyMs": 0,
+              "error": "no answer"
+            },
+            {
+              "nameServer": "ns2.fixture-token.fake-dns.test.",
+              "responded": false,
+              "ns": [],
+              "latencyMs": 0,
+              "error": "no answer"
+            }
+          ]
+        },
+        "probes": {
+          "ns1.fixture-token.fake-dns.test.": {
+            "nameServer": "ns1.fixture-token.fake-dns.test.",
+            "attachmentId": "att-uk5ruq76lioyck5u",
+            "reachable": true,
+            "transport": "udp",
+            "latencyMs": 0,
+            "serial": 3,
+            "match": true,
+            "sampled": 1,
+            "probedAt": "2026-09-23T20:25:39.753077342Z"
+          },
+          "ns2.fixture-token.fake-dns.test.": {
+            "nameServer": "ns2.fixture-token.fake-dns.test.",
+            "attachmentId": "att-uk5ruq76lioyck5u",
+            "reachable": true,
+            "transport": "udp",
+            "latencyMs": 0,
+            "serial": 3,
+            "match": true,
+            "sampled": 1,
+            "probedAt": "2026-09-23T20:25:39.753055866Z"
+          }
+        },
+        "probedAt": "2026-09-23T20:25:39.754305604Z",
+        "updatedAt": "2026-09-23T20:25:39.863301386Z"
+      },
+      "createdAt": "2026-09-23T20:25:39Z",
+      "updatedAt": "2026-09-23T20:25:39Z"
+    }
+  ]
+}

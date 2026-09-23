@@ -1,0 +1,14 @@
+{
+  "status": 200,
+  "body": [
+    {
+      "channelId": "ch-7jbhgwiredfvi4cm",
+      "kind": "webhook",
+      "label": "Fixture hook",
+      "target": "https://hooks.example.com/rdns",
+      "enabled": true,
+      "hasSecret": true,
+      "createdAt": "2026-09-23T20:25:43.10712358Z"
+    }
+  ]
+}

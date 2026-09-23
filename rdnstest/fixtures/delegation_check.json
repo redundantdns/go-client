@@ -1,0 +1,33 @@
+{
+  "status": 200,
+  "body": {
+    "state": "pending",
+    "seenNs": [],
+    "missing": [
+      "ns1.fixture-token.fake-dns.test.",
+      "ns2.fixture-token.fake-dns.test."
+    ],
+    "extra": [],
+    "checkedAt": "2026-09-23T20:25:42.850594025Z",
+    "nsPlan": [
+      "ns1.fixture-token.fake-dns.test.",
+      "ns2.fixture-token.fake-dns.test."
+    ],
+    "answers": [
+      {
+        "nameServer": "ns1.fixture-token.fake-dns.test.",
+        "responded": false,
+        "ns": [],
+        "latencyMs": 0,
+        "error": "no answer"
+      },
+      {
+        "nameServer": "ns2.fixture-token.fake-dns.test.",
+        "responded": false,
+        "ns": [],
+        "latencyMs": 0,
+        "error": "no answer"
+      }
+    ]
+  }
+}

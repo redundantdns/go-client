@@ -1,0 +1,7 @@
+{
+  "status": 404,
+  "body": {
+    "error": "zoneNotFound",
+    "message": "zone not found"
+  }
+}

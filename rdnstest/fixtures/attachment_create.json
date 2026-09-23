@@ -1,0 +1,22 @@
+{
+  "status": 201,
+  "body": {
+    "attachment": {
+      "attachmentId": "att-uk5ruq76lioyck5u",
+      "connectionId": "conn-rg2eredg4yzwxb75",
+      "provider": "fake",
+      "accessLevel": "zone_admin",
+      "providerZoneId": "fakezone-772ca10479cb",
+      "nameServers": [
+        "ns1.fixture-token.fake-dns.test.",
+        "ns2.fixture-token.fake-dns.test."
+      ],
+      "createdRemote": true,
+      "createdAt": "2026-09-23T20:25:39.489178141Z"
+    },
+    "nsPlan": [
+      "ns1.fixture-token.fake-dns.test.",
+      "ns2.fixture-token.fake-dns.test."
+    ]
+  }
+}

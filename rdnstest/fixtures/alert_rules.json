@@ -1,0 +1,31 @@
+{
+  "status": 200,
+  "body": [
+    {
+      "kind": "drift",
+      "enabled": true
+    },
+    {
+      "kind": "sync_error",
+      "enabled": true
+    },
+    {
+      "kind": "delegation_broken",
+      "enabled": true
+    },
+    {
+      "kind": "provider_down",
+      "enabled": true,
+      "threshold": 2,
+      "minThreshold": 1,
+      "maxThreshold": 20
+    },
+    {
+      "kind": "zone_serial_stale",
+      "enabled": true,
+      "threshold": 24,
+      "minThreshold": 1,
+      "maxThreshold": 720
+    }
+  ]
+}

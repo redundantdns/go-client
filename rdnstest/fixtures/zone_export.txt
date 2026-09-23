@@ -1,0 +1,7 @@
+; RedundantDNS export of fixtures-1790195138.example.com. (serial 2026092303)
+$ORIGIN fixtures-1790195138.example.com.
+$TTL 300
+@ 3600 IN SOA ns1.fixture-token.fake-dns.test. hostmaster.fixtures-1790195138.example.com. ( 2026092303 7200 900 1209600 300 )
+@ 86400 IN NS ns1.fixture-token.fake-dns.test.
+@ 86400 IN NS ns2.fixture-token.fake-dns.test.
+www 300 IN A 192.0.2.10
