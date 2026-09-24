@@ -90,6 +90,21 @@ call alert_resolve_missing POST /v1/alerts/events/evt-missing/resolve
 call zone_missing GET /v1/zones/zone-missing
 call audit GET "/v1/audit?zoneId=$zone_id"
 
+# Managed terms and subdomain redundancy (G4b); skipped on deployments
+# that do not serve managedTerms yet. The run's organization is new, so
+# the terms are not accepted when the status and the 428 are captured.
+if jq -e '.managedTerms' <<<"$versions" >/dev/null; then
+  managed_version="$(jq -r .managedTerms <<<"$versions")"
+  printf '%s' "$versions" >"$work/versions"
+  save legal_versions 200 "$work/versions"
+  call legal_managed_status GET /v1/legal/managed
+  call managed_terms_required POST /v1/connections '{"provider":"fake","mode":"managed","label":"Fixture managed"}'
+  call legal_managed_accept POST /v1/legal/managed/accept "{\"version\":\"$managed_version\"}"
+  call zone_create_child POST /v1/zones "{\"name\":\"api.$zone_name\",\"parentDelegation\":true}"
+  child_id="$(jq -r .zoneId "$work/zone_create_child")"
+  curl -s -X DELETE -H "Authorization: Bearer $token" "$base/v1/zones/$child_id" >/dev/null
+fi
+
 # Clean up everything this run created.
 call alert_channel_delete DELETE "/v1/alerts/channels/$channel_id"
 call attachment_delete DELETE "/v1/zones/$zone_id/attachments/$attachment_id?deleteRemote=true&confirmName=$zone_name"

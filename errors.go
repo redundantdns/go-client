@@ -53,7 +53,12 @@ func (apiError *APIError) Is(target error) bool {
 	case ErrUnprocessable:
 		return apiError.StatusCode == http.StatusUnprocessableEntity
 	case ErrLegalAcceptanceRequired:
-		return apiError.StatusCode == http.StatusPreconditionRequired || apiError.Code == CodeLegalAcceptanceRequired
+		// 428 is shared with managed_terms_required, which is not about the
+		// user's Terms of Service acceptance.
+		return apiError.Code == CodeLegalAcceptanceRequired ||
+			(apiError.StatusCode == http.StatusPreconditionRequired && apiError.Code != CodeManagedTermsRequired)
+	case ErrManagedTermsRequired:
+		return apiError.Code == CodeManagedTermsRequired
 	case ErrRateLimited:
 		return apiError.StatusCode == http.StatusTooManyRequests
 	case ErrServer:
@@ -71,8 +76,13 @@ var (
 	ErrConflict                = errors.New("conflict")
 	ErrUnprocessable           = errors.New("unprocessable")
 	ErrLegalAcceptanceRequired = errors.New("legal acceptance required")
-	ErrRateLimited             = errors.New("rate limited")
-	ErrServer                  = errors.New("server error")
+	// ErrManagedTermsRequired: the organization has not accepted the
+	// current Managed Provider Terms and Acceptable Use Policy, needed to
+	// create or attach a managed connection (428 managed_terms_required).
+	// ManagedTermsRequired returns the version to accept.
+	ErrManagedTermsRequired = errors.New("managed provider terms acceptance required")
+	ErrRateLimited          = errors.New("rate limited")
+	ErrServer               = errors.New("server error")
 )
 
 // Stable API error codes (the SPA maps them to errors.<code>).
@@ -117,6 +127,7 @@ const (
 	CodeLegalAcceptanceRequired   = "legal_acceptance_required"
 	CodeLegalVersionMismatch      = "legalVersionMismatch"
 	CodeManagedExists             = "managedExists"
+	CodeManagedTermsRequired      = "managed_terms_required"
 	CodeManagedUnavailable        = "managedUnavailable"
 	CodeNameRequired              = "nameRequired"
 	CodeNotFound                  = "notFound"
@@ -128,6 +139,7 @@ const (
 	CodeProviderZoneMismatch      = "providerZoneMismatch"
 	CodeRecordSetEmpty            = "recordSetEmpty"
 	CodeRecordSetExists           = "recordSetExists"
+	CodeRecordSetManaged          = "recordSetManaged"
 	CodeRecordSetNotFound         = "recordSetNotFound"
 	CodeRecordSetUnsupported      = "recordSetUnsupported"
 	CodeRecordTypeInvalid         = "recordTypeInvalid"

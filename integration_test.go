@@ -322,3 +322,107 @@ func TestIntegrationRoundTrip(t *testing.T) {
 		t.Errorf("audit = %d entries, %v", len(audit), err)
 	}
 }
+
+// TestIntegrationManagedTermsAndParentDelegation covers G4b (managed terms,
+// subdomain redundancy). It skips on deployments that do not serve the
+// managed terms version yet.
+func TestIntegrationManagedTermsAndParentDelegation(t *testing.T) {
+	baseURL := os.Getenv("RDNS_BASE_URL")
+	if baseURL == "" {
+		t.Skip("RDNS_BASE_URL is not set")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+	anonymous, err := redundantdns.New(redundantdns.WithBaseURL(baseURL))
+	if err != nil {
+		t.Fatal(err)
+	}
+	versions, err := anonymous.Account.LegalVersions(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if versions.ManagedTerms == "" {
+		t.Skip("the deployment does not serve managedTerms yet (G4b platform not deployed)")
+	}
+	client := integrationClient(t)
+
+	status, err := client.Legal.ManagedStatus(ctx)
+	if err != nil || status.Current != versions.ManagedTerms {
+		t.Fatalf("managed status = %+v, %v", status, err)
+	}
+	if status.Required {
+		_, err := client.Connections.Create(ctx, redundantdns.ConnectionCreate{Provider: "fake", Mode: redundantdns.ModeManaged, Label: "go-client it managed"})
+		if requirement, ok := redundantdns.ManagedTermsRequired(err); !ok || requirement.Version != versions.ManagedTerms {
+			t.Fatalf("managed connection before acceptance err = %v", err)
+		}
+	}
+	accepted, err := client.Legal.AcceptManaged(ctx, versions.ManagedTerms)
+	if err != nil || accepted.Required || accepted.Accepted == nil {
+		t.Fatalf("accept managed terms = %+v, %v", accepted, err)
+	}
+
+	// Subdomain redundancy with the fake provider.
+	suffix := time.Now().UnixNano()
+	connection, err := client.Connections.Create(ctx, redundantdns.ConnectionCreate{
+		Provider: "fake", Label: "go-client it delegation", AccessLevel: redundantdns.AccessLevelZoneAdmin,
+		Credentials: map[string]string{"token": fmt.Sprintf("pd%d", suffix%100000)},
+	})
+	if err != nil {
+		t.Fatalf("create connection: %v", err)
+	}
+	t.Cleanup(func() { _ = client.Connections.Delete(context.Background(), connection.Connection.ConnectionID) })
+	parentName := fmt.Sprintf("go-client-pd-%d.example.com", suffix)
+	parent, err := client.Zones.Create(ctx, redundantdns.ZoneCreate{Name: parentName})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = client.Zones.Delete(context.Background(), parent.ZoneID) })
+	child, err := client.Zones.Create(ctx, redundantdns.ZoneCreate{Name: "api." + parentName, ParentDelegation: redundantdns.Bool(true)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	childDeleted := false
+	t.Cleanup(func() {
+		if !childDeleted {
+			_ = client.Zones.Delete(context.Background(), child.ZoneID)
+		}
+	})
+	if child.ParentDelegation == nil || !child.ParentDelegation.Enabled {
+		t.Errorf("child parentDelegation = %+v", child.ParentDelegation)
+	}
+	attached, err := client.Attachments.Create(ctx, child.ZoneID, redundantdns.AttachmentCreate{ConnectionID: connection.Connection.ConnectionID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = client.Attachments.Delete(context.Background(), child.ZoneID, attached.Attachment.AttachmentID,
+			redundantdns.DetachOptions{DeleteRemote: true, ConfirmName: "api." + parentName})
+	})
+	records, err := client.Records.List(ctx, parent.ZoneID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, set := range records {
+		if set.Name == "api" && set.Type == "NS" {
+			found = set.ManagedBy == redundantdns.ManagedByDelegation && len(set.Values) == len(attached.NSPlan)
+		}
+	}
+	if !found {
+		t.Errorf("no managed api NS set in the parent: %+v", records)
+	}
+	if err := client.Attachments.Delete(ctx, child.ZoneID, attached.Attachment.AttachmentID,
+		redundantdns.DetachOptions{DeleteRemote: true, ConfirmName: "api." + parentName}); err != nil {
+		t.Fatal(err)
+	}
+	if err := client.Zones.Delete(ctx, child.ZoneID); err != nil {
+		t.Fatal(err)
+	}
+	childDeleted = true
+	records, _ = client.Records.List(ctx, parent.ZoneID)
+	for _, set := range records {
+		if set.Name == "api" && set.Type == "NS" {
+			t.Errorf("the delegation must be removed with the child: %+v", set)
+		}
+	}
+}

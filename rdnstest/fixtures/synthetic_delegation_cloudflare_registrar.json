@@ -1,0 +1,26 @@
+{
+  "status": 200,
+  "body": {
+    "state": "pending",
+    "seenNs": [
+      "ada.ns.cloudflare.com.",
+      "bob.ns.cloudflare.com."
+    ],
+    "missing": [
+      "ns-1.awsdns-01.org."
+    ],
+    "extra": [],
+    "nsPlan": [
+      "ada.ns.cloudflare.com.",
+      "bob.ns.cloudflare.com.",
+      "ns-1.awsdns-01.org."
+    ],
+    "registrar": {
+      "name": "Cloudflare, Inc.",
+      "ianaId": 1910,
+      "isCloudflare": true
+    },
+    "hint": "cloudflare_registrar",
+    "checkedAt": "2026-09-24T18:02:12Z"
+  }
+}

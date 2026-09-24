@@ -1,0 +1,14 @@
+{
+  "status": 200,
+  "body": {
+    "current": "2026-09-24",
+    "accepted": {
+      "version": "2026-09-24",
+      "acceptedAt": "2026-09-24T18:02:11.418220735Z",
+      "userId": "usr-kqe6swvxjkdcznxq",
+      "ip": "198.51.100.7"
+    },
+    "required": false,
+    "url": "https://app.redundantdns.com/legal/managed-terms"
+  }
+}

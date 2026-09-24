@@ -1,0 +1,21 @@
+{
+  "status": 201,
+  "body": {
+    "zoneId": "zone-c7sx2gq4mnw3yh5d",
+    "name": "api.fixtures-1790272800.example.com",
+    "serial": 2026092401,
+    "settings": {
+      "defaultTtl": 300
+    },
+    "nsPlan": [],
+    "recordSets": [],
+    "attachments": [],
+    "parentDelegation": {
+      "enabled": true,
+      "parentZoneId": "zone-2ydq6xbw3kz7hj4p",
+      "parentZoneName": "fixtures-1790272800.example.com"
+    },
+    "createdAt": "2026-09-24T18:02:11.61234218Z",
+    "updatedAt": "2026-09-24T18:02:11.61234218Z"
+  }
+}

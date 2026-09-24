@@ -25,9 +25,12 @@ const DefaultOrgID = "org-test"
 
 // Fake is an in-memory, stateful stand-in for the /v1 API: zones, record
 // sets, provider connections (the "fake" provider), attachments, sync jobs,
-// delegation checks, alert rules, channels and events. It validates the
-// essentials (auth, org, not found, apex NS, confirmName) and answers with
-// the same shapes as the real API; it is not a full re-implementation.
+// delegation checks, subdomain redundancy (parent delegation), the Managed
+// Provider Terms acceptance, alert rules, channels, events and the OAuth
+// endpoints (registration, an auto-approving authorize, token). It
+// validates the essentials (auth, org, not found, apex NS, confirmName,
+// managed terms) and answers with the same shapes as the real API; it is
+// not a full re-implementation.
 type Fake struct {
 	*httptest.Server
 
@@ -45,6 +48,14 @@ type Fake struct {
 	rules       []redundantdns.AlertRule
 	failures    []int
 	requests    []Request
+
+	// managedTerms is the organization's acceptance of the Managed
+	// Provider Terms (nil until accepted).
+	managedTerms *redundantdns.ManagedTermsAcceptance
+	// parentDelegations maps a child zone id to its parent zone id while
+	// the platform manages the delegation.
+	parentDelegations map[string]string
+	oauth             fakeOAuth
 }
 
 // NewFake starts a fake API server closed when the test ends.
@@ -57,6 +68,9 @@ func NewFake(tb testing.TB) *Fake {
 		credentials: map[string]map[string]string{},
 		channels:    map[string]*redundantdns.AlertChannel{},
 		events:      map[string]*redundantdns.AlertEvent{},
+
+		parentDelegations: map[string]string{},
+		oauth:             newFakeOAuth(),
 	}
 	_, rules := MustFixture(tb, "alert_rules")
 	if err := json.Unmarshal(rules, &fake.rules); err != nil {
@@ -141,7 +155,7 @@ func (fake *Fake) routes() http.Handler {
 				writeError(writer, status, "injected", "injected failure")
 				return
 			}
-			if !strings.HasPrefix(request.URL.Path, "/v1/legal/") {
+			if request.URL.Path != "/v1/legal/versions" && !strings.HasPrefix(request.URL.Path, "/oauth/") {
 				if request.Header.Get("Authorization") != "Bearer "+fake.Token {
 					writeError(writer, http.StatusUnauthorized, "unauthorized", "missing or invalid token")
 					return
@@ -159,6 +173,8 @@ func (fake *Fake) routes() http.Handler {
 	fake.mountZones(handle)
 	fake.mountConnections(handle)
 	fake.mountAlerts(handle)
+	fake.mountLegal(handle)
+	fake.mountOAuth(handle)
 	mux.HandleFunc("/", func(writer http.ResponseWriter, request *http.Request) {
 		writeError(writer, http.StatusNotFound, "notFound", "route not found")
 	})
@@ -167,7 +183,7 @@ func (fake *Fake) routes() http.Handler {
 
 func (fake *Fake) mountAccount(handle func(string, handler)) {
 	handle("GET /v1/legal/versions", func(writer http.ResponseWriter, _ *http.Request) {
-		writeJSON(writer, http.StatusOK, redundantdns.LegalVersions{Terms: "2026-09-23", Privacy: "2026-09-23"})
+		writeJSON(writer, http.StatusOK, redundantdns.LegalVersions{Terms: "2026-09-23", Privacy: "2026-09-23", ManagedTerms: ManagedTermsVersion})
 	})
 	handle("GET /v1/me", func(writer http.ResponseWriter, _ *http.Request) {
 		writeJSON(writer, http.StatusOK, redundantdns.Me{
@@ -228,12 +244,24 @@ func (fake *Fake) mountZones(handle func(string, handler)) {
 			CreatedAt: now, UpdatedAt: now,
 		}
 		fake.zones[zone.ZoneID] = zone
+		// Like the API: delegate from the parent zone unless the caller
+		// said no (the dashboard checkbox is on by default).
+		if parent := fake.parentOf(name); parent != nil && (input.ParentDelegation == nil || *input.ParentDelegation) {
+			fake.parentDelegations[zone.ZoneID] = parent.ZoneID
+			fake.writeDelegation(zone)
+		}
 		writeJSON(writer, http.StatusCreated, fake.viewZone(zone))
 	})
 	handle("GET /v1/zones/{zoneId}", fake.withZone(func(writer http.ResponseWriter, _ *http.Request, zone *redundantdns.Zone) {
 		writeJSON(writer, http.StatusOK, fake.viewZone(zone))
 	}))
 	handle("DELETE /v1/zones/{zoneId}", fake.withZone(func(writer http.ResponseWriter, _ *http.Request, zone *redundantdns.Zone) {
+		fake.removeDelegation(zone)
+		for childID, parentID := range fake.parentDelegations {
+			if parentID == zone.ZoneID {
+				delete(fake.parentDelegations, childID)
+			}
+		}
 		delete(fake.zones, zone.ZoneID)
 		writeJSON(writer, http.StatusOK, map[string]bool{"ok": true})
 	}))
@@ -247,6 +275,10 @@ func (fake *Fake) mountZones(handle func(string, handler)) {
 		index := slices.IndexFunc(zone.RecordSets, func(set redundantdns.RecordSet) bool { return set.Name == name && set.Type == recordType })
 		if index < 0 {
 			writeError(writer, http.StatusNotFound, "recordSetNotFound", "record not found")
+			return
+		}
+		if zone.RecordSets[index].ManagedBy != "" {
+			writeError(writer, http.StatusConflict, redundantdns.CodeRecordSetManaged, "this record set is managed by the platform")
 			return
 		}
 		zone.RecordSets = slices.Delete(zone.RecordSets, index, index+1)
@@ -268,6 +300,7 @@ func (fake *Fake) mountZones(handle func(string, handler)) {
 		}
 		zone.Attachments = slices.Delete(zone.Attachments, index, index+1)
 		fake.refreshNSPlan(zone)
+		fake.writeDelegation(zone)
 		writeJSON(writer, http.StatusOK, map[string]bool{"ok": true})
 	}))
 	jobs := func(writer http.ResponseWriter, _ *http.Request, _ *redundantdns.Zone) {
@@ -325,6 +358,12 @@ func (fake *Fake) upsertRecord(writer http.ResponseWriter, request *http.Request
 	if input.Previous != nil {
 		previous = redundantdns.RecordSet{Name: redundantdns.NormalizeRecordName(zone.Name, input.Previous.Name), Type: strings.ToUpper(input.Previous.Type)}
 	}
+	for _, candidate := range zone.RecordSets {
+		if candidate.ManagedBy != "" && ((candidate.Name == set.Name && candidate.Type == set.Type) || (candidate.Name == previous.Name && candidate.Type == previous.Type)) {
+			writeError(writer, http.StatusConflict, redundantdns.CodeRecordSetManaged, "this record set is managed by the platform")
+			return
+		}
+	}
 	index := slices.IndexFunc(zone.RecordSets, func(candidate redundantdns.RecordSet) bool {
 		return candidate.Name == previous.Name && candidate.Type == previous.Type
 	})
@@ -357,6 +396,10 @@ func (fake *Fake) attach(writer http.ResponseWriter, request *http.Request, zone
 			return
 		}
 	}
+	if connection.Mode == redundantdns.ModeManaged && !fake.managedTermsAccepted() {
+		fake.writeManagedTermsRequired(writer)
+		return
+	}
 	token := fake.credentials[connection.ConnectionID]["token"]
 	if token == "" {
 		token = "managed"
@@ -373,6 +416,7 @@ func (fake *Fake) attach(writer http.ResponseWriter, request *http.Request, zone
 	}
 	zone.Attachments = append(zone.Attachments, attachment)
 	fake.refreshNSPlan(zone)
+	fake.writeDelegation(zone)
 	writeJSON(writer, http.StatusCreated, redundantdns.AttachResult{Attachment: attachment, NSPlan: zone.NSPlan})
 }
 
@@ -414,6 +458,12 @@ func (fake *Fake) viewZone(zone *redundantdns.Zone) redundantdns.Zone {
 	view := *zone
 	status := fake.status(zone)
 	view.Status = &status
+	if parentID, ok := fake.parentDelegations[zone.ZoneID]; ok {
+		view.ParentDelegation = &redundantdns.ParentDelegation{Enabled: true, ParentZoneID: parentID}
+		if parent, ok := fake.zones[parentID]; ok {
+			view.ParentDelegation.ParentZoneName = parent.Name
+		}
+	}
 	if len(zone.Attachments) > 0 {
 		_, body, _ := Fixture("zone_get")
 		var recorded redundantdns.Zone
@@ -464,6 +514,17 @@ func (fake *Fake) mountConnections(handle func(string, handler)) {
 		mode := input.Mode
 		if mode == "" {
 			mode = redundantdns.ModeBYO
+		}
+		if mode == redundantdns.ModeManaged && input.AcceptManagedTerms != "" {
+			if input.AcceptManagedTerms != ManagedTermsVersion {
+				writeError(writer, http.StatusConflict, "legalVersionMismatch", "the managed terms version is not the current one")
+				return
+			}
+			fake.acceptManagedTerms()
+		}
+		if mode == redundantdns.ModeManaged && !fake.managedTermsAccepted() {
+			fake.writeManagedTermsRequired(writer)
+			return
 		}
 		if mode == redundantdns.ModeBYO && input.Credentials["token"] == "" {
 			writeError(writer, http.StatusBadRequest, "credentialsIncomplete", "missing credential fields: token")

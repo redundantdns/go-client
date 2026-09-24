@@ -1,0 +1,11 @@
+{
+  "status": 428,
+  "body": {
+    "error": "managed_terms_required",
+    "message": "accept the Managed Provider Terms and Acceptable Use Policy to use managed providers",
+    "details": {
+      "version": "2026-09-24",
+      "url": "https://app.redundantdns.com/legal/managed-terms"
+    }
+  }
+}

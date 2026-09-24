@@ -1,0 +1,9 @@
+{
+  "status": 200,
+  "body": {
+    "current": "2026-09-24",
+    "accepted": null,
+    "required": true,
+    "url": "https://app.redundantdns.com/legal/managed-terms"
+  }
+}

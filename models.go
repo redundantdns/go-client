@@ -54,8 +54,12 @@ type Zone struct {
 	Attachments  []Attachment      `json:"attachments"`
 	Capabilities *ZoneCapabilities `json:"capabilities,omitempty"`
 	Status       *ZoneStatus       `json:"status,omitempty"`
-	CreatedAt    time.Time         `json:"createdAt"`
-	UpdatedAt    time.Time         `json:"updatedAt"`
+	// ParentDelegation is set when the platform manages this zone's NS
+	// delegation in a parent zone of the same organization (subdomain
+	// redundancy).
+	ParentDelegation *ParentDelegation `json:"parentDelegation,omitempty"`
+	CreatedAt        time.Time         `json:"createdAt"`
+	UpdatedAt        time.Time         `json:"updatedAt"`
 }
 
 // ZoneCapabilities is a zone's effective capability: the intersection of
@@ -76,7 +80,18 @@ type ZoneCreate struct {
 	// DefaultTTL is the TTL of record sets created without one (0 = the
 	// server default, 300).
 	DefaultTTL int `json:"defaultTtl,omitempty"`
+	// ParentDelegation controls subdomain redundancy when the zone is a
+	// subdomain of another zone of the organization (api.example.com under
+	// example.com): true makes the platform write the child's NS set into
+	// the parent zone and keep it updated, false leaves the delegation to
+	// you, nil lets the server decide (it delegates when a parent exists).
+	// Use Bool to take the address of a literal.
+	ParentDelegation *bool `json:"parentDelegation,omitempty"`
 }
+
+// Bool returns a pointer to value, for optional boolean fields such as
+// ZoneCreate.ParentDelegation.
+func Bool(value bool) *bool { return &value }
 
 // RecordSet is one (name, type) set. Name is relative to the zone, "@" for
 // the apex; values are in the canonical form (see NormalizeRecordValues).
@@ -86,7 +101,14 @@ type RecordSet struct {
 	TTL                int             `json:"ttl"`
 	Values             []string        `json:"values"`
 	ProviderExtensions json.RawMessage `json:"providerExtensions,omitempty"`
+	// ManagedBy names what owns a record set written by the platform, such
+	// as "delegation" for the NS set of a child zone in its parent. Those
+	// sets cannot be edited by hand.
+	ManagedBy string `json:"managedBy,omitempty"`
 }
+
+// ManagedByDelegation marks a record set written by subdomain redundancy.
+const ManagedByDelegation = "delegation"
 
 // RecordUpsert creates or replaces a record set. Previous renames an
 // existing set (its old name and type).
@@ -178,6 +200,12 @@ type ConnectionCreate struct {
 	AccessLevel string            `json:"accessLevel,omitempty"`
 	Credentials map[string]string `json:"credentials,omitempty"`
 	ScopeHints  map[string]string `json:"scopeHints,omitempty"`
+	// AcceptManagedTerms accepts the Managed Provider Terms and Acceptable
+	// Use Policy of this version for the organization, recorded like
+	// Legal.AcceptManaged. A managed connection needs a current
+	// acceptance, given here or before; without it the API answers
+	// ErrManagedTermsRequired.
+	AcceptManagedTerms string `json:"acceptManagedTerms,omitempty"`
 }
 
 // ConnectionCreateResult is the answer of Connections.Create. Deferred
@@ -280,13 +308,30 @@ type ProbeResult struct {
 
 // Delegation is a delegation check: the parent NS set against the NS plan.
 type Delegation struct {
-	State     string             `json:"state"`
-	SeenNS    []string           `json:"seenNs"`
-	Missing   []string           `json:"missing"`
-	Extra     []string           `json:"extra"`
-	NSPlan    []string           `json:"nsPlan"`
-	Answers   []DelegationAnswer `json:"answers,omitempty"`
-	CheckedAt time.Time          `json:"checkedAt"`
+	State   string             `json:"state"`
+	SeenNS  []string           `json:"seenNs"`
+	Missing []string           `json:"missing"`
+	Extra   []string           `json:"extra"`
+	NSPlan  []string           `json:"nsPlan"`
+	Answers []DelegationAnswer `json:"answers,omitempty"`
+	// Registrar is the domain's registrar from RDAP (nil when unknown).
+	Registrar *Registrar `json:"registrar,omitempty"`
+	// Hint explains a delegation that cannot complete, such as
+	// DelegationHintCloudflareRegistrar.
+	Hint      string    `json:"hint,omitempty"`
+	CheckedAt time.Time `json:"checkedAt"`
+}
+
+// DelegationHintCloudflareRegistrar means the domain is registered at
+// Cloudflare Registrar, which only allows Cloudflare nameservers: apex
+// redundancy needs a registrar transfer (subdomains still work).
+const DelegationHintCloudflareRegistrar = "cloudflare_registrar"
+
+// Registrar is the registrar of a domain, as found in RDAP.
+type Registrar struct {
+	Name         string     `json:"name"`
+	IANAID       FlexString `json:"ianaId,omitempty"`
+	IsCloudflare bool       `json:"isCloudflare"`
 }
 
 // DelegationAnswer is one parent nameserver's answer.
@@ -446,10 +491,13 @@ type OrgSummary struct {
 }
 
 // LegalVersions are the current Terms of Service and Privacy Policy
-// versions (YYYY-MM-DD).
+// versions (YYYY-MM-DD). ManagedTerms is the current Managed Provider
+// Terms and Acceptable Use Policy version (empty on deployments without
+// managed terms); it is accepted per organization, see Legal.
 type LegalVersions struct {
-	Terms   string `json:"terms"`
-	Privacy string `json:"privacy"`
+	Terms        string `json:"terms"`
+	Privacy      string `json:"privacy"`
+	ManagedTerms string `json:"managedTerms,omitempty"`
 }
 
 // LegalStatus is the caller's acceptance of the legal documents.
@@ -476,10 +524,20 @@ type Token struct {
 	Prefix      string     `json:"prefix"`
 	Scopes      []string   `json:"scopes"`
 	IPAllowlist []string   `json:"ipAllowlist"`
+	Client      string     `json:"client,omitempty"`
 	CreatedAt   time.Time  `json:"createdAt"`
 	ExpiresAt   *time.Time `json:"expiresAt,omitempty"`
 	RevokedAt   *time.Time `json:"revokedAt,omitempty"`
 }
+
+// Token clients: what a personal access token is for. The plan gates the
+// Terraform provider, the CLI and MCP by the declared client.
+const (
+	TokenClientAPI       = "api"
+	TokenClientTerraform = "terraform"
+	TokenClientCLI       = "cli"
+	TokenClientMCP       = "mcp"
+)
 
 // TokenCreate is the body of Tokens.Create.
 type TokenCreate struct {
@@ -487,6 +545,9 @@ type TokenCreate struct {
 	Scopes        []string `json:"scopes"`
 	ExpiresInDays int      `json:"expiresInDays,omitempty"`
 	IPAllowlist   []string `json:"ipAllowlist,omitempty"`
+	// Client declares what the token is for (TokenClient*; empty = the
+	// server default, api).
+	Client string `json:"client,omitempty"`
 }
 
 // TokenCreateResult is the answer of Tokens.Create. Token (rdns_...) is

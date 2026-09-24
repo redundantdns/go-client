@@ -67,6 +67,8 @@ type Client struct {
 	Audit       *AuditService
 	Account     *AccountService
 	Tokens      *TokensService
+	Legal       *LegalService
+	OAuth       *OAuthService
 }
 
 // Option configures a Client.
@@ -181,6 +183,8 @@ func (client *Client) bindServices() {
 	client.Audit = &AuditService{client: client}
 	client.Account = &AccountService{client: client}
 	client.Tokens = &TokensService{client: client}
+	client.Legal = &LegalService{client: client}
+	client.OAuth = &OAuthService{client: client}
 }
 
 // BaseURL returns the deployment URL.
@@ -203,6 +207,9 @@ type request struct {
 	path   string
 	query  url.Values
 	body   any
+	// form is sent as application/x-www-form-urlencoded instead of body
+	// (the OAuth token endpoint).
+	form url.Values
 	// accept overrides the Accept header (text endpoints).
 	accept string
 }
@@ -237,6 +244,9 @@ func (client *Client) send(ctx context.Context, call request) (*response, error)
 		return nil, errors.New("nil context")
 	}
 	var payload []byte
+	if call.form != nil {
+		payload = []byte(call.form.Encode())
+	}
 	if call.body != nil {
 		encoded, err := json.Marshal(call.body)
 		if err != nil {
@@ -282,7 +292,10 @@ func (client *Client) sendOnce(ctx context.Context, call request, target string,
 	}
 	httpRequest.Header.Set("Accept", accept)
 	httpRequest.Header.Set("User-Agent", client.userAgent)
-	if payload != nil {
+	switch {
+	case call.form != nil:
+		httpRequest.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	case payload != nil:
 		httpRequest.Header.Set("Content-Type", "application/json")
 	}
 	if client.token != "" {
