@@ -104,6 +104,12 @@ func runLogin(ctx context.Context, cli *app, args []string) error {
 		request.Client = ""
 		minted, err = sessionClient.Tokens.Create(ctx, request)
 	}
+	if redundantdns.HasCode(err, redundantdns.CodeInvalidScope) && !flagWasSet(flags, "scopes") {
+		// A deployment older than the domains module refuses its scopes:
+		// mint with the ones it knows.
+		request.Scopes = withoutScopes(request.Scopes, redundantdns.ScopeDomainsRead, redundantdns.ScopeDomainsWrite)
+		minted, err = sessionClient.Tokens.Create(ctx, request)
+	}
 	if err != nil {
 		return fmt.Errorf("create a personal access token: %w", err)
 	}
@@ -270,4 +276,15 @@ func splitList(value string) []string {
 		}
 	}
 	return items
+}
+
+// withoutScopes returns scopes minus the dropped ones.
+func withoutScopes(scopes []string, dropped ...string) []string {
+	kept := make([]string, 0, len(scopes))
+	for _, scope := range scopes {
+		if !slices.Contains(dropped, scope) {
+			kept = append(kept, scope)
+		}
+	}
+	return kept
 }

@@ -236,7 +236,7 @@ E-mail: you@example.com
 A login code was sent to you@example.com.
 Code: 123456
 Signed in as you@example.com, organization Acme (org-...).
-Token tok-... (zones:read, zones:write, connections:read, connections:write) saved to ~/.config/rdnsctl/config.json.
+Token tok-... (zones:read, zones:write, connections:read, connections:write, domains:read, domains:write) saved to ~/.config/rdnsctl/config.json.
 
 $ rdnsctl connections create --provider route53 --label "AWS prod" \
     --cred accessKeyId=AKIA... --cred secretAccessKey=... --scope region=us-east-1
@@ -254,13 +254,24 @@ $ rdnsctl connections create --provider route53 --mode managed --accept-managed-
 $ rdnsctl zones create api.example.com --parent-delegation
 # OAuth credentials for the Terraform provider
 $ rdnsctl terraform login
+
+# domains: registrant profile, terms, transfer in, then point it at the zone
+$ rdnsctl domains registrant-profile set --first-name Ada --last-name Lovelace --email ada@example.com \
+    --phone +44.2071234567 --street "Main Street" --city London --postal-code "SW1A 1AA" --country GB
+$ rdnsctl domains terms status
+$ rdnsctl domains transfer example.com --apply-zone-ns --accept-terms 2026-09-24 --wait
+$ rdnsctl domains apply-zone-ns example.com
+$ rdnsctl domains authcode example.com      # transfer out, any time
+$ rdnsctl domains export --out domains-export.json
 ```
 
 Commands: `login`, `logout`, `whoami`, `zones list|get|create|delete|export|status`,
 `records list|upsert|delete`, `connections list|create|test|delete`,
 `providers list`, `attach`, `detach`, `sync reconcile|verify|adopt|status`,
 `delegation check`, `alerts list|resolve|ack|rules|channels`,
-`legal managed status|accept`, `terraform login`, `version`.
+`legal managed status|accept`, `terraform login`,
+`domains list|get|transfer|transfer-status|sync|nameservers set|apply-zone-ns|lock|unlock|autorenew|renew|authcode|registrant set|contacts|registrant-profile|export|terms|delete`,
+`version`.
 Run `rdnsctl help <command>` for the flags.
 
 - Zones are referenced by id (`zone-...`) or name.
@@ -280,12 +291,24 @@ Run `rdnsctl help <command>` for the flags.
   delegation of a subdomain zone is written into its parent; unset lets
   the server decide. `delegation check` explains the options when the
   domain is registered at Cloudflare Registrar.
+- `domains transfer` prompts for the auth code when `--auth-code` is not
+  given (keeps it out of the shell history); `--accept-terms <version>`
+  accepts the Domain Registration Terms in the same call and `--wait`
+  polls the registrar until the transfer completes or fails. A failed
+  transfer is forgotten with `domains delete`. `domains contacts
+  update` and `domains registrant-profile set` change only the fields
+  given as flags. `domains authcode`, `unlock`, `sync` and `export` work
+  without the terms (the exit guarantee). `domains export --out` writes
+  the file with mode `0600` (it holds contact data).
+- `login` asks for the `domains:*` scopes too; a deployment without the
+  domains module gets a token with the other scopes.
 - `terraform login` registers an OAuth client declared as
   `terraform-provider-redundantdns`, opens the consent page (the callback
   listens on `127.0.0.1:38971`, `--port` to change) and saves
   `$XDG_CONFIG_HOME/redundantdns/terraform-oauth.json` for the provider.
-- Destructive commands (`zones delete`, `detach --delete-remote`) ask you
-  to type the zone name unless `--yes` is given.
+- Destructive commands (`zones delete`, `detach --delete-remote`,
+  `domains delete`, `domains registrant set`, `domains contacts delete`)
+  ask you to type the name unless `--yes` is given.
 - Exit codes: `0` success, `1` API or runtime error, `2` wrong usage.
 
 ## Development
