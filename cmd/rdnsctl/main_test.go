@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -27,6 +28,8 @@ type result struct {
 type harness struct {
 	t   *testing.T
 	env map[string]string
+	// openBrowser stands in for the system browser (OAuth consent).
+	openBrowser func(target string) error
 }
 
 func newHarness(t *testing.T, env map[string]string) *harness {
@@ -41,7 +44,13 @@ func newHarness(t *testing.T, env map[string]string) *harness {
 func (h *harness) run(stdin string, args ...string) result {
 	h.t.Helper()
 	var stdout, stderr bytes.Buffer
-	cli := &app{stdin: strings.NewReader(stdin), stdout: &stdout, stderr: &stderr, getenv: func(key string) string { return h.env[key] }}
+	cli := &app{
+		stdin: strings.NewReader(stdin), stdout: &stdout, stderr: &stderr, getenv: func(key string) string { return h.env[key] },
+		openBrowser: h.openBrowser,
+	}
+	if cli.openBrowser == nil {
+		cli.openBrowser = func(string) error { return errors.New("no browser in tests") }
+	}
 	code := cli.run(context.Background(), args)
 	return result{code: code, stdout: stdout.String(), stderr: stderr.String()}
 }
@@ -273,6 +282,13 @@ func loginServer(t *testing.T) *httptest.Server {
 		if !accepted {
 			writer.WriteHeader(http.StatusPreconditionRequired)
 			_, _ = writer.Write([]byte(`{"error":"legal_acceptance_required","message":"accept first"}`))
+			return
+		}
+		// rdnsctl declares its tokens as the CLI.
+		var body redundantdns.TokenCreate
+		if err := json.NewDecoder(request.Body).Decode(&body); err != nil || body.Client != redundantdns.TokenClientCLI {
+			writer.WriteHeader(http.StatusBadRequest)
+			_, _ = writer.Write([]byte(`{"error":"invalidTokenClient","message":"expected client cli"}`))
 			return
 		}
 		org := request.Header.Get(redundantdns.OrgHeader)

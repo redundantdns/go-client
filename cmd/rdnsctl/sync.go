@@ -188,6 +188,12 @@ func runDelegationCheck(ctx context.Context, cli *app, args []string) error {
 	fmt.Fprintf(cli.stdout, "Delegation: %s\nNS plan:  %s\nSeen:     %s\nMissing:  %s\nExtra:    %s\n", delegation.State,
 		dash(strings.Join(delegation.NSPlan, " ")), dash(strings.Join(delegation.SeenNS, " ")),
 		dash(strings.Join(delegation.Missing, " ")), dash(strings.Join(delegation.Extra, " ")))
+	if delegation.Registrar != nil {
+		fmt.Fprintf(cli.stdout, "Registrar: %s\n", dash(delegation.Registrar.Name))
+	}
+	if delegation.Hint == redundantdns.DelegationHintCloudflareRegistrar {
+		fmt.Fprint(cli.stdout, cloudflareRegistrarHint)
+	}
 	return nil
 }
 

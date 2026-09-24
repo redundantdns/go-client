@@ -67,7 +67,11 @@ func runZonesGet(ctx context.Context, cli *app, args []string) error {
 	}
 	fmt.Fprintf(cli.stdout, "Zone %s (%s)\nSerial %d, default TTL %d, created %s\n", zone.Name, zone.ZoneID, zone.Serial, zone.Settings.DefaultTTL, zone.CreatedAt.Format(time.RFC3339))
 	fmt.Fprintf(cli.stdout, "NS plan: %s\n", dash(strings.Join(zone.NSPlan, " ")))
-	fmt.Fprintf(cli.stdout, "Sync: %s; delegation: %s\n\n", syncSummary(zone.Status), delegationState(zone.Status))
+	fmt.Fprintf(cli.stdout, "Sync: %s; delegation: %s\n", syncSummary(zone.Status), delegationState(zone.Status))
+	if delegation := zone.ParentDelegation; delegation != nil && delegation.Enabled {
+		fmt.Fprintf(cli.stdout, "Delegated from %s (RedundantDNS-managed NS set in the parent zone)\n", dash(delegation.ParentZoneName))
+	}
+	fmt.Fprintln(cli.stdout)
 	if len(zone.Attachments) > 0 {
 		table := cli.table("ATTACHMENT ID", "PROVIDER", "LABEL", "ACCESS", "PROVIDER ZONE", "STATE")
 		for _, attachment := range zone.Attachments {
@@ -82,15 +86,23 @@ func runZonesGet(ctx context.Context, cli *app, args []string) error {
 	return cli.printRecords(zone.RecordSets)
 }
 
+const zonesCreateUsage = "rdnsctl zones create <name> [--default-ttl SECONDS] [--parent-delegation[=false]]"
+
 func runZonesCreate(ctx context.Context, cli *app, args []string) error {
 	shared := &globals{}
 	flags := newFlagSet("zones create", shared)
 	defaultTTL := flags.Int("default-ttl", 0, "TTL of record sets created without one (default 300)")
-	client, positionals, err := cli.begin(flags, shared, args, 1, "rdnsctl zones create <name> [--default-ttl SECONDS]")
+	parentDelegation := flags.Bool("parent-delegation", false,
+		"for a subdomain of another zone of the organization: write its NS delegation into the parent zone and keep it updated (=false to opt out; unset lets the server decide)")
+	client, positionals, err := cli.begin(flags, shared, args, 1, zonesCreateUsage)
 	if err != nil {
 		return err
 	}
-	zone, err := client.Zones.Create(ctx, redundantdns.ZoneCreate{Name: positionals[0], DefaultTTL: *defaultTTL})
+	input := redundantdns.ZoneCreate{Name: positionals[0], DefaultTTL: *defaultTTL}
+	if flagWasSet(flags, "parent-delegation") {
+		input.ParentDelegation = redundantdns.Bool(*parentDelegation)
+	}
+	zone, err := client.Zones.Create(ctx, input)
 	if err != nil {
 		return err
 	}
@@ -98,7 +110,22 @@ func runZonesCreate(ctx context.Context, cli *app, args []string) error {
 		return cli.printJSON(zone)
 	}
 	fmt.Fprintf(cli.stdout, "Created zone %s (%s). Attach providers with: rdnsctl attach %s --connection <connectionId>\n", zone.Name, zone.ZoneID, zone.Name)
+	if delegation := zone.ParentDelegation; delegation != nil && delegation.Enabled {
+		fmt.Fprintf(cli.stdout, "Delegated from %s: RedundantDNS writes the NS set of %s into that zone and keeps it updated as providers are attached.\n",
+			dash(delegation.ParentZoneName), zone.Name)
+	}
 	return nil
+}
+
+// flagWasSet reports whether a flag was given on the command line.
+func flagWasSet(flags *flag.FlagSet, name string) bool {
+	set := false
+	flags.Visit(func(given *flag.Flag) {
+		if given.Name == name {
+			set = true
+		}
+	})
+	return set
 }
 
 func runZonesDelete(ctx context.Context, cli *app, args []string) error {

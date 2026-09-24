@@ -138,7 +138,7 @@ func runConnectionsList(ctx context.Context, cli *app, args []string) error {
 	return table.Flush()
 }
 
-const connectionsCreateUsage = "rdnsctl connections create --provider ID [--label L] [--access-level zone_admin|zone_editor] [--mode byo|managed] [--cred KEY=VALUE...] [--cred-file KEY=PATH...] [--scope KEY=VALUE...]"
+const connectionsCreateUsage = "rdnsctl connections create --provider ID [--label L] [--access-level zone_admin|zone_editor] [--mode byo|managed [--accept-managed-terms VERSION]] [--cred KEY=VALUE...] [--cred-file KEY=PATH...] [--scope KEY=VALUE...]"
 
 func runConnectionsCreate(ctx context.Context, cli *app, args []string) error {
 	shared := &globals{}
@@ -147,6 +147,7 @@ func runConnectionsCreate(ctx context.Context, cli *app, args []string) error {
 	label := flags.String("label", "", "label shown in the dashboard")
 	accessLevel := flags.String("access-level", "", "zone_admin (creates zones, the default for byo) or zone_editor (edits existing zones)")
 	mode := flags.String("mode", "", "byo (your credentials, default) or managed (platform account)")
+	acceptManagedTerms := flags.String("accept-managed-terms", "", "accept this version of the Managed Provider Terms and Acceptable Use Policy (required with --mode managed)")
 	var credentials, credentialFiles, scopes multiFlag
 	flags.Var(&credentials, "cred", "credential field KEY=VALUE (repeat)")
 	flags.Var(&credentialFiles, "cred-file", "credential field read from a file, KEY=PATH (for private keys)")
@@ -158,7 +159,13 @@ func runConnectionsCreate(ctx context.Context, cli *app, args []string) error {
 	if *provider == "" {
 		return usagef("usage: %s", connectionsCreateUsage)
 	}
-	input := redundantdns.ConnectionCreate{Provider: *provider, Label: *label, AccessLevel: *accessLevel, Mode: *mode}
+	if *mode == redundantdns.ModeManaged && strings.TrimSpace(*acceptManagedTerms) == "" {
+		return cli.refuseManagedWithoutTerms(ctx, client)
+	}
+	input := redundantdns.ConnectionCreate{
+		Provider: *provider, Label: *label, AccessLevel: *accessLevel, Mode: *mode,
+		AcceptManagedTerms: strings.TrimSpace(*acceptManagedTerms),
+	}
 	if input.AccessLevel == "" && input.Mode != redundantdns.ModeManaged {
 		// The API requires an access level for BYO credentials.
 		input.AccessLevel = redundantdns.AccessLevelZoneAdmin

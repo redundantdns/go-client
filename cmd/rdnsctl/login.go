@@ -19,8 +19,9 @@ const loginUsage = `rdnsctl login [--base-url URL] [--email EMAIL] [--code CODE]
 
 The first form signs in like the dashboard: an e-mailed one-time code, the
 Terms of Service and Privacy Policy when not yet accepted, then a personal
-access token is created for the chosen organization and saved. The second
-form saves an existing token after checking it.`
+access token (client "cli") is created for the chosen organization and
+saved. The second form saves an existing token after checking it. For the
+Terraform provider, see rdnsctl terraform login.`
 
 func runLogin(ctx context.Context, cli *app, args []string) error {
 	shared := &globals{}
@@ -92,8 +93,9 @@ func runLogin(ctx context.Context, cli *app, args []string) error {
 		host, _ := os.Hostname()
 		name = strings.TrimSpace("rdnsctl " + host)
 	}
+	// The token declares itself as the CLI, so the plan gates it as one.
 	minted, err := sessionClient.Tokens.Create(ctx, redundantdns.TokenCreate{
-		Name: name, Scopes: splitList(*scopes), ExpiresInDays: *expiresDays,
+		Name: name, Scopes: splitList(*scopes), ExpiresInDays: *expiresDays, Client: redundantdns.TokenClientCLI,
 	})
 	if err != nil {
 		return fmt.Errorf("create a personal access token: %w", err)

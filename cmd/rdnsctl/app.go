@@ -22,6 +22,9 @@ type app struct {
 	stdout io.Writer
 	stderr io.Writer
 	getenv func(string) string
+	// openBrowser opens a URL for an interactive OAuth consent (nil: the
+	// system browser, best effort).
+	openBrowser func(target string) error
 
 	reader *bufio.Reader
 }
@@ -75,7 +78,7 @@ func groups() map[string]group {
 		"zones": {summary: "Canonical zones", subcommands: map[string]command{
 			"list":   {summary: "List zones", usage: "rdnsctl zones list", run: runZonesList},
 			"get":    {summary: "Show a zone with its records and attachments", usage: "rdnsctl zones get <zone>", run: runZonesGet},
-			"create": {summary: "Create a zone", usage: "rdnsctl zones create <name> [--default-ttl SECONDS]", run: runZonesCreate},
+			"create": {summary: "Create a zone", usage: zonesCreateUsage, run: runZonesCreate},
 			"delete": {summary: "Delete a canonical zone (provider zones are kept)", usage: "rdnsctl zones delete <zone> [--yes]", run: runZonesDelete},
 			"export": {summary: "Print the zone as an RFC 1035 zone file", usage: "rdnsctl zones export <zone>", run: runZonesExport},
 			"status": {summary: "Show the sync state per attachment", usage: "rdnsctl zones status <zone>", run: runZonesStatus},
@@ -99,6 +102,12 @@ func groups() map[string]group {
 			"verify":    {summary: "Compare the providers with the canonical zone now", usage: "rdnsctl sync verify <zone> [--attachment ID] [--wait]", run: runSyncVerify},
 			"adopt":     {summary: "Import one provider's records into the canonical zone", usage: "rdnsctl sync adopt <zone> <attachmentId>", run: runSyncAdopt},
 			"status":    {summary: "Show the sync state per attachment", usage: "rdnsctl sync status <zone>", run: runZonesStatus},
+		}},
+		"legal": {summary: "Legal acceptances of the organization", subcommands: map[string]command{
+			"managed": {summary: "Managed Provider Terms and Acceptable Use Policy (managed providers)", usage: legalManagedUsage, run: runLegalManaged},
+		}},
+		"terraform": {summary: "Credentials for the Terraform provider", subcommands: map[string]command{
+			"login": {summary: "Sign in with OAuth for the Terraform provider and save the credentials file", usage: terraformLoginUsage, run: runTerraformLogin},
 		}},
 		"delegation": {summary: "Delegation checks", subcommands: map[string]command{
 			"check": {summary: "Check the parent NS set against the NS plan now", usage: "rdnsctl delegation check <zone>", run: runDelegationCheck},
@@ -314,6 +323,10 @@ func describeError(err error) string {
 		text += " (sign in again with rdnsctl login)"
 	case redundantdns.HasCode(err, redundantdns.CodeInsufficientScope):
 		text += " (the token lacks a scope; mint one with more scopes)"
+	case errors.Is(err, redundantdns.ErrManagedTermsRequired):
+		requirement, _ := redundantdns.ManagedTermsRequired(err)
+		text += fmt.Sprintf(" (read %s, then accept version %s with rdnsctl legal managed accept %s)",
+			dash(requirement.URL), dash(requirement.Version), dash(requirement.Version))
 	}
 	if len(apiError.Details) > 0 {
 		text += "\n" + string(apiError.Details)

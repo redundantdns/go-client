@@ -50,8 +50,52 @@ status, err := client.Zones.WaitInSync(ctx, zone.ZoneID, redundantdns.WaitOption
 
 Services on the client: `Zones`, `Records`, `Connections`, `Attachments`,
 `Sync` (reconcile, verify, adopt), `Delegation`, `Alerts` (rules, channels,
-events), `Audit`, `Account` (me, orgs, providers, legal) and, for dashboard
-sessions only, `Auth` (e-mail code login) and `Tokens`.
+events), `Audit`, `Account` (me, orgs, providers, the user's legal
+acceptance), `Legal` (the organization's Managed Provider Terms), `OAuth`
+(client registration, authorization code with PKCE, refresh) and, for
+dashboard sessions only, `Auth` (e-mail code login) and `Tokens`.
+
+### Managed providers and their terms
+
+Managed connections use platform-owned provider accounts. The organization
+must accept the current **Managed Provider Terms and Acceptable Use
+Policy** first, either with `Legal.AcceptManaged(ctx, version)` or in the
+connection body (`ConnectionCreate.AcceptManagedTerms`, recorded the same
+way). Without it, creating or attaching a managed connection fails with
+`ErrManagedTermsRequired`; `ManagedTermsRequired(err)` returns the version
+to accept and the URL of the text:
+
+```go
+status, err := client.Legal.ManagedStatus(ctx) // Current, Accepted, Required, URL
+_, err = client.Connections.Create(ctx, redundantdns.ConnectionCreate{
+	Provider: "route53", Mode: redundantdns.ModeManaged, AcceptManagedTerms: status.Current,
+})
+if requirement, ok := redundantdns.ManagedTermsRequired(err); ok {
+	fmt.Println("read", requirement.URL, "and accept", requirement.Version)
+}
+```
+
+### Subdomain redundancy
+
+When a zone is a subdomain of another zone of the organization
+(`api.example.com` under `example.com`), the platform can write its NS
+delegation into the parent and keep it updated as providers are attached
+(`RecordSet.ManagedBy == "delegation"` there; such sets cannot be edited).
+`ZoneCreate.ParentDelegation` takes `redundantdns.Bool(true)` or `false`;
+nil lets the server decide. `Zone.ParentDelegation` shows the parent. A
+delegation check on a domain registered at Cloudflare Registrar has
+`Hint == DelegationHintCloudflareRegistrar` and `Registrar` from RDAP.
+
+### Token clients and OAuth software ids
+
+The plan gates the Terraform provider, the CLI and MCP by what a token
+declares. `TokenCreate.Client` is `api` (default), `terraform`, `cli` or
+`mcp`; an OAuth client declares itself at registration with
+`OAuthClientRegistration.SoftwareID` (`SoftwareIDCLI`,
+`SoftwareIDTerraform`). `OAuthCredentials` saves an OAuth login to a file
+(mode 0600) and `RefreshOAuthCredentials` refreshes it, writing the rotated
+refresh token back; this is how the Terraform provider reuses
+`rdnsctl terraform login`.
 
 ### Authentication and organizations
 
@@ -78,7 +122,8 @@ if errors.As(err, &apiError) { fmt.Println(apiError.Code, apiError.Details) }
 
 Sentinels: `ErrBadRequest`, `ErrUnauthorized`, `ErrForbidden`,
 `ErrNotFound`, `ErrConflict`, `ErrUnprocessable`,
-`ErrLegalAcceptanceRequired`, `ErrRateLimited`, `ErrServer`.
+`ErrLegalAcceptanceRequired`, `ErrManagedTermsRequired`, `ErrRateLimited`,
+`ErrServer`.
 
 ### Retries
 
@@ -120,8 +165,14 @@ Package `rdnstest` has two test servers:
   recorded from a real deployment (`rdnstest/fixtures`, refreshed with
   `scripts/record-fixtures.sh`).
 - `rdnstest.NewFake(t)` is a small stateful fake of `/v1` (zones, records,
-  the `fake` provider, attachments, jobs, alerts) with failure injection
-  (`FailNext(429, 503)`).
+  the `fake` provider, attachments, jobs, alerts, managed terms, parent
+  delegation) and of the OAuth endpoints (it approves every authorization
+  at once), with failure injection (`FailNext(429, 503)`).
+
+Fixtures for routes the dev lab does not serve yet (`legal_*`,
+`managed_terms_required`, `zone_create_child`) follow the documented API
+contract and are overwritten by the next recording run; `synthetic_*`
+fixtures are states the lab cannot produce on demand.
 
 ## rdnsctl
 
@@ -146,22 +197,44 @@ $ rdnsctl records upsert example.com --name www --type A --value 192.0.2.10 --tt
 $ rdnsctl sync reconcile example.com --wait
 $ rdnsctl delegation check example.com
 $ rdnsctl alerts list --state firing
+
+# managed providers: read the terms, then accept them explicitly
+$ rdnsctl legal managed status
+$ rdnsctl connections create --provider route53 --mode managed --accept-managed-terms 2026-09-24
+# subdomain redundancy: api.example.com delegated from example.com
+$ rdnsctl zones create api.example.com --parent-delegation
+# OAuth credentials for the Terraform provider
+$ rdnsctl terraform login
 ```
 
 Commands: `login`, `logout`, `whoami`, `zones list|get|create|delete|export|status`,
 `records list|upsert|delete`, `connections list|create|test|delete`,
 `providers list`, `attach`, `detach`, `sync reconcile|verify|adopt|status`,
-`delegation check`, `alerts list|resolve|ack|rules|channels`, `version`.
+`delegation check`, `alerts list|resolve|ack|rules|channels`,
+`legal managed status|accept`, `terraform login`, `version`.
 Run `rdnsctl help <command>` for the flags.
 
 - Zones are referenced by id (`zone-...`) or name.
 - Global flags: `--base-url`, `--token`, `--org`, `--json`, `--config`.
   Environment: `RDNS_BASE_URL`, `RDNS_TOKEN`, `RDNS_ORG`. Flags win over
   the environment, which wins over the saved config.
-- `login` stores the token in `$XDG_CONFIG_HOME/rdnsctl/config.json`
+- `login` mints a personal access token declared as the CLI
+  (`client: cli`) and stores it in `$XDG_CONFIG_HOME/rdnsctl/config.json`
   (`~/.config/rdnsctl/config.json` by default) with mode `0600`.
   `login --token rdns_...` saves an existing token instead. `logout` removes
   the file; revoke the token in the dashboard (tokens cannot revoke tokens).
+- `connections create --mode managed` refuses to run without
+  `--accept-managed-terms <version>` and prints where to read the terms;
+  `legal managed accept <version>` records the acceptance on its own
+  (organization admins).
+- `zones create --parent-delegation` (or `=false`) decides whether the
+  delegation of a subdomain zone is written into its parent; unset lets
+  the server decide. `delegation check` explains the options when the
+  domain is registered at Cloudflare Registrar.
+- `terraform login` registers an OAuth client declared as
+  `terraform-provider-redundantdns`, opens the consent page (the callback
+  listens on `127.0.0.1:38971`, `--port` to change) and saves
+  `$XDG_CONFIG_HOME/redundantdns/terraform-oauth.json` for the provider.
 - Destructive commands (`zones delete`, `detach --delete-remote`) ask you
   to type the zone name unless `--yes` is given.
 - Exit codes: `0` success, `1` API or runtime error, `2` wrong usage.
