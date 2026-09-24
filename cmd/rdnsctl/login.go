@@ -94,9 +94,16 @@ func runLogin(ctx context.Context, cli *app, args []string) error {
 		name = strings.TrimSpace("rdnsctl " + host)
 	}
 	// The token declares itself as the CLI, so the plan gates it as one.
-	minted, err := sessionClient.Tokens.Create(ctx, redundantdns.TokenCreate{
+	request := redundantdns.TokenCreate{
 		Name: name, Scopes: splitList(*scopes), ExpiresInDays: *expiresDays, Client: redundantdns.TokenClientCLI,
-	})
+	}
+	minted, err := sessionClient.Tokens.Create(ctx, request)
+	if redundantdns.HasCode(err, redundantdns.CodeInvalidBody) && strings.Contains(err.Error(), `"client"`) {
+		// A deployment older than token clients refuses the field: mint
+		// without it (the User-Agent still says rdnsctl).
+		request.Client = ""
+		minted, err = sessionClient.Tokens.Create(ctx, request)
+	}
 	if err != nil {
 		return fmt.Errorf("create a personal access token: %w", err)
 	}

@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"path/filepath"
 	"strings"
@@ -161,4 +162,38 @@ func lastBody(t *testing.T, fake *rdnstest.Fake, pattern string) map[string]any 
 	}
 	t.Fatalf("no request %s", pattern)
 	return nil
+}
+
+func TestLoginOnDeploymentWithoutTokenClients(t *testing.T) {
+	// A server older than token clients: strict JSON decoding refuses the
+	// client field; rdnsctl mints again without it.
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /auth/code", func(writer http.ResponseWriter, _ *http.Request) { _, _ = writer.Write([]byte(`{"ok":true}`)) })
+	mux.HandleFunc("POST /auth/verify", func(writer http.ResponseWriter, _ *http.Request) {
+		http.SetCookie(writer, &http.Cookie{Name: redundantdns.SessionCookie, Value: "session-jwt"})
+		_, _ = writer.Write([]byte(`{"user":{"userId":"usr-1","email":"dev@example.com"},"orgs":[{"orgId":"org-a","name":"Alpha","role":"owner"}]}`))
+	})
+	mux.HandleFunc("GET /v1/me/legal", func(writer http.ResponseWriter, _ *http.Request) {
+		_, _ = writer.Write([]byte(`{"current":{"terms":"2026-09-23","privacy":"2026-09-23"},"required":false}`))
+	})
+	attempts := 0
+	mux.HandleFunc("POST /v1/tokens", func(writer http.ResponseWriter, request *http.Request) {
+		attempts++
+		var body map[string]any
+		_ = json.NewDecoder(request.Body).Decode(&body)
+		if _, ok := body["client"]; ok {
+			writer.WriteHeader(http.StatusBadRequest)
+			_, _ = writer.Write([]byte(`{"error":"invalidBody","message":"invalid JSON body: json: unknown field \"client\""}`))
+			return
+		}
+		writer.WriteHeader(http.StatusCreated)
+		_, _ = writer.Write([]byte(`{"record":{"tokenId":"tok-9","scopes":["zones:read"]},"token":"rdns_old"}`))
+	})
+	server := httptest.NewServer(mux)
+	t.Cleanup(server.Close)
+	h := newHarness(t, map[string]string{"RDNS_BASE_URL": server.URL})
+	out := h.run("", "login", "--email", "dev@example.com", "--code", "123456")
+	if out.code != 0 || attempts != 2 || !strings.Contains(out.stdout, "tok-9") {
+		t.Fatalf("login on an older deployment = %+v (attempts %d)", out, attempts)
+	}
 }
