@@ -18,7 +18,8 @@ func runAttach(ctx context.Context, cli *app, args []string) error {
 	connectionID := flags.String("connection", "", "connection id")
 	providerZoneID := flags.String("provider-zone-id", "", "existing provider zone (zone_editor connections, or with --adopt-existing)")
 	adoptExisting := flags.Bool("adopt-existing", false, "attach an existing provider zone instead of creating one")
-	usage := "rdnsctl attach <zone> --connection <connectionId> [--provider-zone-id ID] [--adopt-existing]"
+	label := flags.String("label", "", "a name for the attachment (the connection's label when omitted), e.g. the one it had before a detach")
+	usage := "rdnsctl attach <zone> --connection <connectionId> [--provider-zone-id ID] [--adopt-existing] [--label NAME]"
 	client, positionals, err := cli.begin(flags, shared, args, 1, usage)
 	if err != nil {
 		return err
@@ -31,7 +32,7 @@ func runAttach(ctx context.Context, cli *app, args []string) error {
 		return err
 	}
 	result, err := client.Attachments.Create(ctx, zoneID, redundantdns.AttachmentCreate{
-		ConnectionID: *connectionID, ProviderZoneID: *providerZoneID, AdoptExisting: *adoptExisting,
+		ConnectionID: *connectionID, ProviderZoneID: *providerZoneID, AdoptExisting: *adoptExisting, Label: *label,
 	})
 	if err != nil {
 		return err

@@ -63,7 +63,7 @@ func leafCommands() map[string]command {
 		"login":   {summary: "Sign in with an e-mail code (or store a token) and save the credentials", usage: loginUsage, run: runLogin},
 		"logout":  {summary: "Forget the saved credentials", usage: "rdnsctl logout", run: runLogout},
 		"whoami":  {summary: "Show the signed-in user and organization", usage: "rdnsctl whoami", run: runWhoami},
-		"attach":  {summary: "Attach a provider connection to a zone", usage: "rdnsctl attach <zone> --connection <connectionId> [--provider-zone-id ID] [--adopt-existing]", run: runAttach},
+		"attach":  {summary: "Attach a provider connection to a zone", usage: "rdnsctl attach <zone> --connection <connectionId> [--provider-zone-id ID] [--adopt-existing] [--label NAME]", run: runAttach},
 		"detach":  {summary: "Detach a provider from a zone", usage: "rdnsctl detach <zone> <attachmentId> [--delete-remote --yes]", run: runDetach},
 		"version": {summary: "Print the version", usage: "rdnsctl version", run: runVersion},
 	}

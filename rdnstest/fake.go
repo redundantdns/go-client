@@ -1,6 +1,7 @@
 package rdnstest
 
 import (
+	"cmp"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -366,7 +367,7 @@ func (fake *Fake) attach(writer http.ResponseWriter, request *http.Request, zone
 	}
 	attachment := redundantdns.Attachment{
 		AttachmentID: fake.nextID("att"), ConnectionID: connection.ConnectionID, Provider: connection.Provider,
-		Label: connection.Label, AccessLevel: connection.AccessLevel, ProviderZoneID: providerZoneID,
+		Label: cmp.Or(input.Label, connection.Label), AccessLevel: connection.AccessLevel, ProviderZoneID: providerZoneID,
 		NameServers:   []string{"ns1." + token + ".fake-dns.test.", "ns2." + token + ".fake-dns.test."},
 		CreatedRemote: input.ProviderZoneID == "", CreatedAt: time.Now().UTC(),
 	}

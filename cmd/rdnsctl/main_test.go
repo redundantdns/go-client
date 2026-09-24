@@ -116,8 +116,11 @@ func TestZoneLifecycle(t *testing.T) {
 		t.Errorf("zones create = %s", out)
 	}
 	// Flags after positionals, zone referenced by name.
-	if out := h.ok("attach", "example.com", "--connection", connectionID); !strings.Contains(out, "ns1.abcd1234.fake-dns.test.") {
+	if out := h.ok("attach", "example.com", "--connection", connectionID, "--label", "Primary"); !strings.Contains(out, "ns1.abcd1234.fake-dns.test.") {
 		t.Errorf("attach = %s", out)
+	}
+	if out := h.ok("zones", "get", "example.com"); !strings.Contains(out, "Primary") {
+		t.Errorf("attachment label = %s", out)
 	}
 	if out := h.ok("records", "upsert", "example.com", "--name", "www", "--type", "a", "--value", "192.0.2.10", "--value", "192.0.2.011"); !strings.Contains(out, "192.0.2.10 | 192.0.2.11") {
 		t.Errorf("records upsert = %s", out)

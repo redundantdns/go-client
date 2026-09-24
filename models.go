@@ -132,6 +132,10 @@ type AttachmentCreate struct {
 	// AdoptExisting attaches an existing provider zone instead of creating
 	// one.
 	AdoptExisting bool `json:"adoptExisting,omitempty"`
+	// Label names the attachment (optional, up to 80 characters; the
+	// connection's label is shown otherwise), e.g. the label it had before
+	// a detach.
+	Label string `json:"label,omitempty"`
 }
 
 // AttachResult is the answer of Attachments.Create.

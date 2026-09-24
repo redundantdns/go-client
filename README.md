@@ -141,7 +141,7 @@ Token tok-... (zones:read, zones:write, connections:read, connections:write) sav
 $ rdnsctl connections create --provider route53 --label "AWS prod" \
     --cred accessKeyId=AKIA... --cred secretAccessKey=... --scope region=us-east-1
 $ rdnsctl zones create example.com
-$ rdnsctl attach example.com --connection conn-...
+$ rdnsctl attach example.com --connection conn-... --label "Route 53 primary"
 $ rdnsctl records upsert example.com --name www --type A --value 192.0.2.10 --ttl 300
 $ rdnsctl sync reconcile example.com --wait
 $ rdnsctl delegation check example.com
