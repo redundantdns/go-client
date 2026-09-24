@@ -13,7 +13,8 @@ import (
 
 // LegalService reads and records the organization's acceptance of the
 // Managed Provider Terms and Acceptable Use Policy, required before using
-// managed (platform-owned) provider accounts. The user-level Terms of
+// managed (platform-owned) provider accounts, and of the Domain
+// Registration Terms, required before changing domains. The user-level Terms of
 // Service and Privacy Policy are in AccountService (Legal, AcceptLegal).
 type LegalService struct{ client *Client }
 
@@ -72,8 +73,51 @@ type ManagedTermsRequirement struct {
 // a managed_terms_required answer (ok is false otherwise). The URL may be
 // empty when the server sent none.
 func ManagedTermsRequired(err error) (requirement ManagedTermsRequirement, ok bool) {
+	return termsRequirement(err, CodeManagedTermsRequired)
+}
+
+// DomainTermsStatus is the organization's state for the Domain
+// Registration Terms (same shape as the managed terms status).
+type DomainTermsStatus = ManagedTermsStatus
+
+// DomainTermsRequirement is what a 428 domain_terms_required answer carries
+// in its details: the version to accept and where to read it.
+type DomainTermsRequirement = ManagedTermsRequirement
+
+// DomainTermsRequired returns the version and URL of the Domain
+// Registration Terms when err is a domain_terms_required answer (ok is
+// false otherwise). The URL may be empty when the server sent none.
+func DomainTermsRequired(err error) (requirement DomainTermsRequirement, ok bool) {
+	return termsRequirement(err, CodeDomainTermsRequired)
+}
+
+// DomainStatus returns the organization's acceptance of the Domain
+// Registration Terms.
+func (service *LegalService) DomainStatus(ctx context.Context) (*DomainTermsStatus, error) {
+	var status DomainTermsStatus
+	if err := service.client.do(ctx, request{method: http.MethodGet, path: "/v1/legal/domains"}, &status); err != nil {
+		return nil, err
+	}
+	return &status, nil
+}
+
+// AcceptDomain accepts the given version of the Domain Registration Terms,
+// which must be the current one (409 legalVersionMismatch otherwise), for
+// the whole organization (org admins). The acceptance is audited.
+func (service *LegalService) AcceptDomain(ctx context.Context, version string) (*DomainTermsStatus, error) {
+	var status DomainTermsStatus
+	body := map[string]string{"version": strings.TrimSpace(version)}
+	if err := service.client.do(ctx, request{method: http.MethodPost, path: "/v1/legal/domains/accept", body: body}, &status); err != nil {
+		return nil, err
+	}
+	return &status, nil
+}
+
+// termsRequirement decodes the {version, url} details of a terms answer
+// with the given code.
+func termsRequirement(err error, code string) (requirement ManagedTermsRequirement, ok bool) {
 	var apiError *APIError
-	if !errors.As(err, &apiError) || apiError.Code != CodeManagedTermsRequired {
+	if !errors.As(err, &apiError) || apiError.Code != code {
 		return ManagedTermsRequirement{}, false
 	}
 	if len(apiError.Details) > 0 {

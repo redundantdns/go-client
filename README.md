@@ -51,9 +51,11 @@ status, err := client.Zones.WaitInSync(ctx, zone.ZoneID, redundantdns.WaitOption
 Services on the client: `Zones`, `Records`, `Connections`, `Attachments`,
 `Sync` (reconcile, verify, adopt), `Delegation`, `Alerts` (rules, channels,
 events), `Audit`, `Account` (me, orgs, providers, the user's legal
-acceptance), `Legal` (the organization's Managed Provider Terms), `OAuth`
-(client registration, authorization code with PKCE, refresh) and, for
-dashboard sessions only, `Auth` (e-mail code login) and `Tokens`.
+acceptance), `Legal` (the organization's Managed Provider Terms and Domain
+Registration Terms), `Domains` (registrar domains, contacts, registrant
+profile, export), `OAuth` (client registration, authorization code with
+PKCE, refresh) and, for dashboard sessions only, `Auth` (e-mail code login)
+and `Tokens`.
 
 ### Managed providers and their terms
 
@@ -74,6 +76,42 @@ if requirement, ok := redundantdns.ManagedTermsRequired(err); ok {
 	fmt.Println("read", requirement.URL, "and accept", requirement.Version)
 }
 ```
+
+### Domains (registrar)
+
+Domains held at the platform's registrar account, with the organization as
+registrant. Changes run as registrar jobs: a `DomainMutationResult` carries
+the domain after the change and the job (`Queued()` when the registrar
+failed transiently and the platform retries it). Every change except the
+exit routes (`AuthCode`, unlocking with `SetLock(ctx, name, false)`,
+`Sync`, `Export`) needs the organization's acceptance of the current
+**Domain Registration Terms**: `Legal.AcceptDomain(ctx, version)` or
+`DomainTransferCreate.AcceptDomainTerms`; without it the API answers
+`ErrDomainTermsRequired` and `DomainTermsRequired(err)` returns the version
+and the URL. Tokens need the `domains:read` / `domains:write` scopes.
+
+```go
+_, err := client.Domains.SetRegistrantProfile(ctx, redundantdns.ContactFields{
+	FirstName: "Ada", LastName: "Lovelace", Email: "ada@example.com", Phone: "+44.2071234567",
+	Street: "Main Street", City: "London", PostalCode: "SW1A 1AA", Country: "GB",
+})
+result, err := client.Domains.TransferIn(ctx, redundantdns.DomainTransferCreate{
+	Name: "example.com", AuthCode: authCode, ApplyZoneNS: true, AcceptDomainTerms: versions.DomainTerms,
+})
+status, err := client.Domains.WaitTransfer(ctx, "example.com", redundantdns.WaitTransferOptions{Sync: true})
+if errors.Is(err, redundantdns.ErrTransferFailed) {
+	_ = client.Domains.Delete(ctx, "example.com") // forget the failed transfer, release the name
+}
+_, err = client.Domains.ApplyZoneNS(ctx, "example.com", "") // NS plan of the zone with the same name
+code, err := client.Domains.AuthCode(ctx, "example.com")     // transfer out, any time
+```
+
+Also: `List`/`All`, `Get`, `TransferStatus`, `SetNameservers`, `SetLock`,
+`SetAutoRenew`, `Renew`, `ChangeRegistrant` (trade, repeat the name),
+`Contacts`/`CreateContact`/`UpdateContact`/`DeleteContact`,
+`RegistrantProfile`, `Export`/`ExportJSON` and, for platform admins,
+`AdminList`/`AdminAssign`. The Free plan holds one domain (`402
+plan_limit_reached`, `ErrPaymentRequired`).
 
 ### Subdomain redundancy
 
@@ -122,7 +160,8 @@ if errors.As(err, &apiError) { fmt.Println(apiError.Code, apiError.Details) }
 
 Sentinels: `ErrBadRequest`, `ErrUnauthorized`, `ErrForbidden`,
 `ErrNotFound`, `ErrConflict`, `ErrUnprocessable`,
-`ErrLegalAcceptanceRequired`, `ErrManagedTermsRequired`, `ErrRateLimited`,
+`ErrLegalAcceptanceRequired`, `ErrManagedTermsRequired`,
+`ErrDomainTermsRequired`, `ErrPaymentRequired`, `ErrRateLimited`,
 `ErrServer`.
 
 ### Retries
@@ -166,8 +205,18 @@ Package `rdnstest` has two test servers:
   `scripts/record-fixtures.sh`).
 - `rdnstest.NewFake(t)` is a small stateful fake of `/v1` (zones, records,
   the `fake` provider, attachments, jobs, alerts, managed terms, parent
-  delegation) and of the OAuth endpoints (it approves every authorization
-  at once), with failure injection (`FailNext(429, 503)`).
+  delegation, domains) and of the OAuth endpoints (it approves every
+  authorization at once), with failure injection (`FailNext(429, 503)`).
+
+The fake's domains module simulates the registrar: a transfer stays
+`transfer_pending` until it has been read `SetTransferReads(n)` times
+(default 2; `GET` the domain or its transfer, or `sync`), an auth code
+starting with `invalid` is rejected at once (`422 registrarRejected`, the
+domain stays as `transfer_failed`) and one starting with `fail` is accepted
+and then fails. It enforces the Domain Registration Terms, the registrant
+profile and, on the default `free` plan (`SetPlan`), one domain. Seed state
+with `SeedDomain`, `SeedUnassignedDomain`, `SeedContact` and
+`AcceptDomainTerms`.
 
 Fixtures for routes the dev lab does not serve yet (`legal_*`,
 `managed_terms_required`, `zone_create_child`) follow the documented API

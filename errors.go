@@ -56,9 +56,14 @@ func (apiError *APIError) Is(target error) bool {
 		// 428 is shared with managed_terms_required, which is not about the
 		// user's Terms of Service acceptance.
 		return apiError.Code == CodeLegalAcceptanceRequired ||
-			(apiError.StatusCode == http.StatusPreconditionRequired && apiError.Code != CodeManagedTermsRequired)
+			(apiError.StatusCode == http.StatusPreconditionRequired &&
+				apiError.Code != CodeManagedTermsRequired && apiError.Code != CodeDomainTermsRequired)
 	case ErrManagedTermsRequired:
 		return apiError.Code == CodeManagedTermsRequired
+	case ErrDomainTermsRequired:
+		return apiError.Code == CodeDomainTermsRequired
+	case ErrPaymentRequired:
+		return apiError.StatusCode == http.StatusPaymentRequired
 	case ErrRateLimited:
 		return apiError.StatusCode == http.StatusTooManyRequests
 	case ErrServer:
@@ -81,8 +86,17 @@ var (
 	// create or attach a managed connection (428 managed_terms_required).
 	// ManagedTermsRequired returns the version to accept.
 	ErrManagedTermsRequired = errors.New("managed provider terms acceptance required")
-	ErrRateLimited          = errors.New("rate limited")
-	ErrServer               = errors.New("server error")
+	// ErrDomainTermsRequired: the organization has not accepted the current
+	// Domain Registration Terms, needed for every domain change except the
+	// exit routes (auth code, unlock, sync, export) (428
+	// domain_terms_required). DomainTermsRequired returns the version to
+	// accept.
+	ErrDomainTermsRequired = errors.New("domain registration terms acceptance required")
+	// ErrPaymentRequired: 402, the plan does not allow the action
+	// (plan_limit_reached) or the organization is read-only (org_read_only).
+	ErrPaymentRequired = errors.New("payment required")
+	ErrRateLimited     = errors.New("rate limited")
+	ErrServer          = errors.New("server error")
 )
 
 // Stable API error codes (the SPA maps them to errors.<code>).
@@ -100,11 +114,20 @@ const (
 	CodeConflict                  = "conflict"
 	CodeConnectionInUse           = "connectionInUse"
 	CodeConnectionNotFound        = "connectionNotFound"
+	CodeContactInUse              = "contactInUse"
+	CodeContactNotFound           = "contactNotFound"
 	CodeCredentialsIncomplete     = "credentialsIncomplete"
 	CodeCredentialsNotAllowed     = "credentialsNotAllowed"
 	CodeDataPlaneUnavailable      = "dataPlaneUnavailable"
 	CodeDeleteRemoteNotAllowed    = "deleteRemoteNotAllowed"
+	CodeDomainExists              = "domainExists"
+	CodeDomainNameTaken           = "domainNameTaken"
+	CodeDomainNotFound            = "domainNotFound"
+	CodeDomainNotRemovable        = "domainNotRemovable"
+	CodeDomainTermsRequired       = "domain_terms_required"
+	CodeDomainTransferInProgress  = "domainTransferInProgress"
 	CodeForbidden                 = "forbidden"
+	CodeIPNotAllowed              = "ipNotAllowed"
 	CodeInsufficientScope         = "insufficientScope"
 	CodeInternal                  = "internal"
 	CodeInvalidAccessLevel        = "invalidAccessLevel"
@@ -112,17 +135,19 @@ const (
 	CodeInvalidChannelKind        = "invalidChannelKind"
 	CodeInvalidChannelURL         = "invalidChannelUrl"
 	CodeInvalidCode               = "invalidCode"
+	CodeInvalidContact            = "invalidContact"
+	CodeInvalidDomainName         = "invalidDomainName"
 	CodeInvalidEmail              = "invalidEmail"
 	CodeInvalidIPAllowlist        = "invalidIpAllowlist"
 	CodeInvalidMode               = "invalidMode"
+	CodeInvalidNameservers        = "invalidNameservers"
 	CodeInvalidScope              = "invalidScope"
 	CodeInvalidState              = "invalidState"
+	CodeInvalidTTL                = "invalidTtl"
 	CodeInvalidThreshold          = "invalidThreshold"
 	CodeInvalidToken              = "invalidToken"
-	CodeInvalidTTL                = "invalidTtl"
 	CodeInvalidWebhookSecret      = "invalidWebhookSecret"
 	CodeInvalidZoneName           = "invalidZoneName"
-	CodeIPNotAllowed              = "ipNotAllowed"
 	CodeLabelRequired             = "labelRequired"
 	CodeLegalAcceptanceRequired   = "legal_acceptance_required"
 	CodeLegalVersionMismatch      = "legalVersionMismatch"
@@ -132,6 +157,8 @@ const (
 	CodeNameRequired              = "nameRequired"
 	CodeNotFound                  = "notFound"
 	CodeNotLoggedIn               = "notLoggedIn"
+	CodeOrgReadOnly               = "org_read_only"
+	CodePlanLimitReached          = "plan_limit_reached"
 	CodeProviderRejected          = "providerRejected"
 	CodeProviderUnavailable       = "providerUnavailable"
 	CodeProviderZoneExists        = "providerZoneExists"
@@ -143,12 +170,16 @@ const (
 	CodeRecordSetNotFound         = "recordSetNotFound"
 	CodeRecordSetUnsupported      = "recordSetUnsupported"
 	CodeRecordTypeInvalid         = "recordTypeInvalid"
+	CodeRegistrantProfileRequired = "registrantProfileRequired"
+	CodeRegistrarRejected         = "registrarRejected"
+	CodeRegistrarUnavailable      = "registrarUnavailable"
 	CodeScopesRequired            = "scopesRequired"
 	CodeSessionRequired           = "sessionRequired"
 	CodeTokenNotFound             = "tokenNotFound"
 	CodeTooManyChannels           = "tooManyChannels"
 	CodeUnauthorized              = "unauthorized"
 	CodeZoneExists                = "zoneExists"
+	CodeZoneNSPlanEmpty           = "zoneNsPlanEmpty"
 	CodeZoneNameTaken             = "zoneNameTaken"
 	CodeZoneNotFound              = "zoneNotFound"
 	CodeTooManyClientRegistration = "too_many_requests"

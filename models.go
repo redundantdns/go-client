@@ -11,10 +11,14 @@ const (
 	ScopeZonesWrite       = "zones:write"
 	ScopeConnectionsRead  = "connections:read"
 	ScopeConnectionsWrite = "connections:write"
+	ScopeDomainsRead      = "domains:read"
+	ScopeDomainsWrite     = "domains:write"
 )
 
 // AllScopes lists every token scope.
-var AllScopes = []string{ScopeZonesRead, ScopeZonesWrite, ScopeConnectionsRead, ScopeConnectionsWrite}
+var AllScopes = []string{
+	ScopeZonesRead, ScopeZonesWrite, ScopeConnectionsRead, ScopeConnectionsWrite, ScopeDomainsRead, ScopeDomainsWrite,
+}
 
 // Connection access levels.
 const (
@@ -492,12 +496,14 @@ type OrgSummary struct {
 
 // LegalVersions are the current Terms of Service and Privacy Policy
 // versions (YYYY-MM-DD). ManagedTerms is the current Managed Provider
-// Terms and Acceptable Use Policy version (empty on deployments without
-// managed terms); it is accepted per organization, see Legal.
+// Terms and Acceptable Use Policy version and DomainTerms the current
+// Domain Registration Terms version (each empty on deployments without
+// them); both are accepted per organization, see Legal.
 type LegalVersions struct {
 	Terms        string `json:"terms"`
 	Privacy      string `json:"privacy"`
 	ManagedTerms string `json:"managedTerms,omitempty"`
+	DomainTerms  string `json:"domainTerms,omitempty"`
 }
 
 // LegalStatus is the caller's acceptance of the legal documents.

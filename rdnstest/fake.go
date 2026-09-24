@@ -56,6 +56,12 @@ type Fake struct {
 	// the platform manages the delegation.
 	parentDelegations map[string]string
 	oauth             fakeOAuth
+	// plan is the organization's plan ("free" by default), shown by /v1/me
+	// and enforced by the domains module (one domain on Free).
+	plan string
+	// domainState is the domains module: domains, contacts, the Domain
+	// Registration Terms acceptance and the simulated registrar.
+	domainState fakeDomains
 }
 
 // NewFake starts a fake API server closed when the test ends.
@@ -71,6 +77,8 @@ func NewFake(tb testing.TB) *Fake {
 
 		parentDelegations: map[string]string{},
 		oauth:             newFakeOAuth(),
+		plan:              "free",
+		domainState:       newFakeDomains(),
 	}
 	_, rules := MustFixture(tb, "alert_rules")
 	if err := json.Unmarshal(rules, &fake.rules); err != nil {
@@ -175,6 +183,7 @@ func (fake *Fake) routes() http.Handler {
 	fake.mountAlerts(handle)
 	fake.mountLegal(handle)
 	fake.mountOAuth(handle)
+	fake.mountDomains(handle)
 	mux.HandleFunc("/", func(writer http.ResponseWriter, request *http.Request) {
 		writeError(writer, http.StatusNotFound, "notFound", "route not found")
 	})
@@ -183,16 +192,18 @@ func (fake *Fake) routes() http.Handler {
 
 func (fake *Fake) mountAccount(handle func(string, handler)) {
 	handle("GET /v1/legal/versions", func(writer http.ResponseWriter, _ *http.Request) {
-		writeJSON(writer, http.StatusOK, redundantdns.LegalVersions{Terms: "2026-09-23", Privacy: "2026-09-23", ManagedTerms: ManagedTermsVersion})
+		writeJSON(writer, http.StatusOK, redundantdns.LegalVersions{
+			Terms: "2026-09-23", Privacy: "2026-09-23", ManagedTerms: ManagedTermsVersion, DomainTerms: DomainTermsVersion,
+		})
 	})
 	handle("GET /v1/me", func(writer http.ResponseWriter, _ *http.Request) {
 		writeJSON(writer, http.StatusOK, redundantdns.Me{
 			User: redundantdns.User{UserID: "usr-test", Email: "test@example.com", Kind: "pat"},
-			Orgs: []redundantdns.OrgSummary{{OrgID: fake.OrgID, Name: "Test org", Plan: "free", Role: "owner"}},
+			Orgs: []redundantdns.OrgSummary{{OrgID: fake.OrgID, Name: "Test org", Plan: fake.plan, Role: "owner"}},
 		})
 	})
 	handle("GET /v1/orgs", func(writer http.ResponseWriter, _ *http.Request) {
-		writeJSON(writer, http.StatusOK, []redundantdns.OrgSummary{{OrgID: fake.OrgID, Name: "Test org", Plan: "free", Role: "owner"}})
+		writeJSON(writer, http.StatusOK, []redundantdns.OrgSummary{{OrgID: fake.OrgID, Name: "Test org", Plan: fake.plan, Role: "owner"}})
 	})
 	handle("GET /v1/providers", func(writer http.ResponseWriter, _ *http.Request) {
 		status, body, _ := Fixture("providers")
@@ -320,13 +331,20 @@ func (fake *Fake) mountZones(handle func(string, handler)) {
 	}))
 	handle("GET /v1/zones/{zoneId}/export", fake.withZone(func(writer http.ResponseWriter, _ *http.Request, zone *redundantdns.Zone) {
 		writer.Header().Set("Content-Type", "text/plain; charset=utf-8")
-		_, _ = fmt.Fprintf(writer, "$ORIGIN %s.\n", zone.Name)
-		for _, set := range zone.RecordSets {
-			for _, value := range set.Values {
-				_, _ = fmt.Fprintf(writer, "%s %d IN %s %s\n", set.Name, set.TTL, set.Type, value)
-			}
-		}
+		_, _ = writer.Write([]byte(zoneFile(zone)))
 	}))
+}
+
+// zoneFile renders a zone as a minimal RFC 1035 zone file.
+func zoneFile(zone *redundantdns.Zone) string {
+	var file strings.Builder
+	_, _ = fmt.Fprintf(&file, "$ORIGIN %s.\n", zone.Name)
+	for _, set := range zone.RecordSets {
+		for _, value := range set.Values {
+			_, _ = fmt.Fprintf(&file, "%s %d IN %s %s\n", set.Name, set.TTL, set.Type, value)
+		}
+	}
+	return file.String()
 }
 
 func (fake *Fake) upsertRecord(writer http.ResponseWriter, request *http.Request, zone *redundantdns.Zone) {

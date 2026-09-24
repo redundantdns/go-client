@@ -69,6 +69,7 @@ type Client struct {
 	Tokens      *TokensService
 	Legal       *LegalService
 	OAuth       *OAuthService
+	Domains     *DomainsService
 }
 
 // Option configures a Client.
@@ -185,6 +186,7 @@ func (client *Client) bindServices() {
 	client.Tokens = &TokensService{client: client}
 	client.Legal = &LegalService{client: client}
 	client.OAuth = &OAuthService{client: client}
+	client.Domains = &DomainsService{client: client}
 }
 
 // BaseURL returns the deployment URL.
