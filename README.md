@@ -256,5 +256,12 @@ The integration test creates a connection on the `fake` provider, a zone,
 an attachment, records, sync jobs, a delegation check and an alert channel,
 and deletes all of it at the end, also when a step fails.
 
+The managed-mode test (managed terms and parent delegation) needs the org on
+a paid plan. The bootstrap moves the org to Starter through the e2e hook
+`POST /e2e/billing/plan` (deployments with `RDNS_E2E=1`); on a deployment
+without the hook the test skips when the org is on the Free plan, so run it
+against an e2e deployment or with a token whose org is already on a paid
+plan.
+
 Releases: tag `vX.Y.Z`; the release workflow runs goreleaser to attach the
 `rdnsctl` archives and checksums to the GitHub release.

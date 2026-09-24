@@ -10,14 +10,20 @@
 // do not pile up users) and the fixed e2e code (RDNS_E2E_CODE, default
 // 123456; the deployment must run with RDNS_E2E=1), accept the legal
 // documents when needed, mint a short-lived token and revoke it at the end.
-// They need the "fake" provider (e2e mode). Everything created is deleted,
-// also when a step fails.
+// They need the "fake" provider (e2e mode). The bootstrap also puts the
+// org on the Starter plan through the e2e hook POST /e2e/billing/plan;
+// managed-mode tests need a paid plan and skip on a Free org when the hook
+// is not available. Everything created is deleted, also when a step fails.
 package redundantdns_test
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"strings"
 	"testing"
@@ -70,7 +76,17 @@ func bootstrapToken(t *testing.T, baseURL string) string {
 	if len(session.Orgs) == 0 {
 		t.Fatal("the new user has no organization")
 	}
-	sessionClient, err := redundantdns.New(redundantdns.WithBaseURL(baseURL), redundantdns.WithSession(session.Token), redundantdns.WithOrg(session.Orgs[0].OrgID))
+	orgID := session.Orgs[0].OrgID
+	// Managed mode needs a paid plan; on a non-e2e deployment the org keeps
+	// its plan and the managed tests skip on Free.
+	applied, err := setE2EPlan(ctx, baseURL, orgID, "starter")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !applied {
+		t.Logf("POST /e2e/billing/plan is not available on %s; org %s keeps its plan", baseURL, orgID)
+	}
+	sessionClient, err := redundantdns.New(redundantdns.WithBaseURL(baseURL), redundantdns.WithSession(session.Token), redundantdns.WithOrg(orgID))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -100,6 +116,61 @@ func bootstrapToken(t *testing.T, baseURL string) string {
 	})
 	t.Logf("signed in as %s (org %s), token %s", email, session.Orgs[0].OrgID, minted.Record.TokenID)
 	return minted.Token
+}
+
+// setE2EPlan sets an organization's plan with the e2e hook, like the
+// Terraform provider's acceptance tests. It reports false (no error) when
+// the hook is not mounted: a non-e2e deployment answers 404 or the SPA's
+// HTML instead of JSON.
+func setE2EPlan(ctx context.Context, baseURL, orgID, plan string) (bool, error) {
+	body, err := json.Marshal(map[string]string{"orgId": orgID, "plan": plan, "status": "active"})
+	if err != nil {
+		return false, err
+	}
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimRight(baseURL, "/")+"/e2e/billing/plan", bytes.NewReader(body))
+	if err != nil {
+		return false, err
+	}
+	request.Header.Set("Content-Type", "application/json")
+	answer, err := http.DefaultClient.Do(request)
+	if err != nil {
+		return false, fmt.Errorf("set the %s plan: %w", plan, err)
+	}
+	defer func() { _ = answer.Body.Close() }()
+	if answer.StatusCode == http.StatusNotFound || answer.StatusCode == http.StatusMethodNotAllowed ||
+		!strings.HasPrefix(answer.Header.Get("Content-Type"), "application/json") {
+		return false, nil
+	}
+	if answer.StatusCode != http.StatusOK {
+		excerpt, _ := io.ReadAll(io.LimitReader(answer.Body, 512))
+		return false, fmt.Errorf("set the %s plan: %d %s", plan, answer.StatusCode, excerpt)
+	}
+	return true, nil
+}
+
+// requirePaidPlan skips the test when the token's org is on the Free plan
+// and the e2e plan hook cannot move it to Starter (non-e2e deployment).
+// It also covers RDNS_TOKEN runs, where the bootstrap did not run.
+func requirePaidPlan(ctx context.Context, t *testing.T, client *redundantdns.Client, baseURL string) {
+	t.Helper()
+	me, err := client.Account.Me(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(me.Orgs) == 0 {
+		t.Fatal("the token has no organization")
+	}
+	org := me.Orgs[0]
+	if org.Plan != "free" {
+		return
+	}
+	applied, err := setE2EPlan(ctx, baseURL, org.OrgID, "starter")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !applied {
+		t.Skipf("org %s is on the Free plan and POST /e2e/billing/plan is not available on %s: managed mode needs a paid plan (run against an e2e deployment, RDNS_E2E=1, or set the org's plan with the admin override)", org.OrgID, baseURL)
+	}
 }
 
 func TestIntegrationRoundTrip(t *testing.T) {
@@ -345,6 +416,7 @@ func TestIntegrationManagedTermsAndParentDelegation(t *testing.T) {
 		t.Skip("the deployment does not serve managedTerms yet (G4b platform not deployed)")
 	}
 	client := integrationClient(t)
+	requirePaidPlan(ctx, t, client, baseURL)
 
 	status, err := client.Legal.ManagedStatus(ctx)
 	if err != nil || status.Current != versions.ManagedTerms {
