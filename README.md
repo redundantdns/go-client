@@ -53,9 +53,12 @@ Services on the client: `Zones`, `Records`, `Connections`, `Attachments`,
 events), `Audit`, `Account` (me, orgs, providers, the user's legal
 acceptance), `Legal` (the organization's Managed Provider Terms and Domain
 Registration Terms), `Domains` (registrar domains, contacts, registrant
-profile, export), `OAuth` (client registration, authorization code with
-PKCE, refresh) and, for dashboard sessions only, `Auth` (e-mail code login)
-and `Tokens`.
+profile, export), `Licenses` (self-hosted licenses; issuing for platform
+admins), `Exports` (the organization export bundle), `Compliance`
+(compliance profiles), `Plans` (the public plan catalog), `OAuth` (client
+registration, authorization code with PKCE, refresh) and, for dashboard
+sessions only, `Auth` (e-mail code login) and `Tokens`. `Audit` also
+verifies the audit stream and downloads its evidence bundle.
 
 ### Managed providers and their terms
 
@@ -145,6 +148,43 @@ register or renew for an organization without a payment:
 (the organization must have accepted the terms itself; no plan limit) and
 `AdminRenew(ctx, orgID, name, AdminDomainRenew{SkipPayment: true})`.
 
+### Licenses, org export, compliance and the audit stream
+
+```go
+// Licenses of your self-hosted installations (owners download the file).
+licenses, err := client.Licenses.List(ctx)
+file, err := client.Licenses.Download(ctx, licenses[0].LID) // file.Token, file.Filename
+// Platform admins: AdminList(acct), AdminIssue(claims), AdminSetStatus(lid, status), AdminToken(lid).
+
+// The whole organization, secrets included, sealed under a passphrase.
+export, err := client.Exports.Request(ctx, passphrase) // at least 12 characters
+export, err = client.Exports.Status(ctx, export.JobID)  // until ExportReady
+bundle, err := client.Exports.Download(ctx, export.JobID)
+defer bundle.Close() // an io.ReadCloser; bundle.SHA256 is the digest to check
+
+// Compliance: 0 pass, 1 warn, 2 fail with report.ExitCode().
+report, err := client.Compliance.Report(ctx, redundantdns.ComplianceISO27001, "")
+report, err = client.Compliance.Run(ctx, "", "")   // recorded in the audit log and stream
+last, err := client.Compliance.Last(ctx, "")        // nil before the first run
+
+// Audit stream: verification report and evidence bundle (inclusive days).
+verify, err := client.Audit.Verify(ctx, "2026-09-01", "2026-09-30") // verify.OK
+evidence, err := client.Audit.Export(ctx, "", "")                  // a tar, plans with audit export
+
+// Public plan catalog: the trial and the billing intervals on sale.
+catalog, err := client.Plans.Catalog(ctx)
+yearly := catalog.IntervalOnSale(redundantdns.IntervalYearly) // catalog.Trial.Days: the trial
+```
+
+The export routes name the organization in their path: the client's
+`WithOrg`, else the token's only organization. `Exports.Download` asks for
+a fresh one-time link (every `Status` call replaces the previous one),
+always follows it on the client's base URL and never retries it; it answers
+`ErrExportNotReady` while the export is queued or failed. Downloads
+(`*redundantdns.Download`) stream: read them to the end and close them. New
+sentinels: `ErrGone` (410, `exportExpired`) and `ErrLicenseDegraded` (503
+`license_degraded`, a self-hosted installation whose license is degraded).
+
 ### Subdomain redundancy
 
 When a zone is a subdomain of another zone of the organization
@@ -191,7 +231,7 @@ if errors.As(err, &apiError) { fmt.Println(apiError.Code, apiError.Details) }
 ```
 
 Sentinels: `ErrBadRequest`, `ErrUnauthorized`, `ErrForbidden`,
-`ErrNotFound`, `ErrConflict`, `ErrUnprocessable`,
+`ErrNotFound`, `ErrConflict`, `ErrUnprocessable`, `ErrGone`, `ErrLicenseDegraded`,
 `ErrLegalAcceptanceRequired`, `ErrManagedTermsRequired`,
 `ErrDomainTermsRequired`, `ErrPaymentRequired`, `ErrRateLimited`,
 `ErrServer`.
@@ -237,7 +277,8 @@ Package `rdnstest` has two test servers:
   `scripts/record-fixtures.sh`).
 - `rdnstest.NewFake(t)` is a small stateful fake of `/v1` (zones, records,
   the `fake` provider, attachments, jobs, alerts, managed terms, parent
-  delegation, domains) and of the OAuth endpoints (it approves every
+  delegation, domains, licenses, org exports, compliance, the audit stream
+  and the plan catalog) and of the OAuth endpoints (it approves every
   authorization at once), with failure injection (`FailNext(429, 503)`).
 
 The fake's domains module simulates the registrar: a transfer stays
@@ -259,6 +300,16 @@ checkout URL served by the fake (`GET /fake-stripe/checkout?session=...`,
 no token), which pays at once, or pay it with `PayDomainCheckout(name)`.
 A paid name whose first label starts with `fail-` ends as
 `registration_failed`; `register/retry` then succeeds.
+
+The fake's caller owns its organization and is a platform admin, so the
+license routes of both sides answer (`SeedLicense`, `SetLicenseIssuer(false)`
+for `503 license_issuer_unavailable`, `LicenseDownloadsPerHour`). An
+export is ready after `SetExportReads(n)` status reads (default 1); a
+passphrase starting with `fail` makes it fail. `SetCompliance("warn")` sets
+the status of every compliance report; `TamperAuditStream` makes the
+verification fail and `SetAuditStream(false)` answers `503
+auditStreamUnavailable`. The audit evidence bundle needs `SetPlan("business")`.
+`FakePlanCatalog()` is the catalog `GET /v1/plans` answers (no token).
 
 Fixtures for routes the dev lab does not serve yet (`legal_*`,
 `managed_terms_required`, `zone_create_child`) follow the documented API
@@ -314,6 +365,19 @@ $ rdnsctl domains register example.tools --apply-zone-ns --accept-domain-terms 2
 Registration of example.tools waits for its payment (33.00 USD for 1 year). Pay it at:
   https://checkout.stripe.com/c/pay/cs_live_...
 Follow it with: rdnsctl domains get example.tools
+
+# compliance posture: exit 0 pass, 1 warn, 2 fail (3 on an error)
+$ rdnsctl compliance --profile iso27001
+$ rdnsctl compliance run          # recorded in the audit log and stream
+# audit stream: verify the chain and seals, download the evidence bundle
+$ rdnsctl audit verify --from 2026-09-01 --to 2026-09-30
+$ rdnsctl audit export --out evidence.tar
+# export the whole organization, secrets included (owners)
+$ rdnsctl export request --passphrase-file ~/.rdns-export-passphrase --wait
+$ rdnsctl export download job-... --out org-bundle.tar
+# self-hosted licenses
+$ rdnsctl licenses list
+$ rdnsctl licenses download lic-... --out acme.license
 ```
 
 Commands: `login`, `logout`, `whoami`, `zones list|get|create|delete|export|status`,
@@ -322,7 +386,10 @@ Commands: `login`, `logout`, `whoami`, `zones list|get|create|delete|export|stat
 `delegation check`, `alerts list|resolve|ack|rules|channels`,
 `legal managed status|accept`, `terraform login`,
 `domains list|get|check|register|register-retry|cancel|transfer|transfer-status|sync|nameservers set|apply-zone-ns|lock|unlock|autorenew|renew|authcode|registrant set|contacts|registrant-profile|export|terms|delete`,
-`admin domains list|assign|register|renew`, `version`.
+`admin domains list|assign|register|renew`,
+`licenses list|download`, `admin licenses list|issue|status|token`,
+`export request|status|download`, `compliance [run|last]`,
+`audit verify|export`, `version`.
 Run `rdnsctl help <command>` for the flags.
 
 - Zones are referenced by id (`zone-...`) or name.
@@ -369,10 +436,28 @@ Run `rdnsctl help <command>` for the flags.
   `terraform-provider-redundantdns`, opens the consent page (the callback
   listens on `127.0.0.1:38971`, `--port` to change) and saves
   `$XDG_CONFIG_HOME/redundantdns/terraform-oauth.json` for the provider.
+- `compliance` runs a profile now (`--profile`, default baseline;
+  `--scope platform` for the installation, platform admins with a dashboard
+  session), `compliance run` records it, `compliance last` prints the last
+  recorded report. The exit code mirrors `rdns compliance`: `0` pass, `1`
+  warn, `2` fail, `3` for a usage or API error.
+- `audit verify` exits `1` when the verification fails; `audit export`
+  needs a plan with audit export (Business and above).
+- `export request` reads the passphrase from `--passphrase-file` (`-` for
+  stdin), never from a flag value; `--wait` polls until the bundle is ready.
+  `export download` checks the SHA-256 the server announced before keeping
+  the file. `export status --json` leaves the one-time link out.
+- `licenses download`, `admin licenses token` and `admin licenses issue
+  --out` write the signed license. Every file the CLI downloads (licenses,
+  bundles) is written with mode `0600` under a temporary name and renamed
+  when complete, never over an existing file; `--out -` prints to stdout.
+  Without `--out` the server's file name is used, reduced to a base name in
+  the working directory.
 - Destructive commands (`zones delete`, `detach --delete-remote`,
   `domains delete`, `domains cancel`, `domains registrant set`, `domains contacts delete`)
   ask you to type the name unless `--yes` is given.
-- Exit codes: `0` success, `1` API or runtime error, `2` wrong usage.
+- Exit codes: `0` success, `1` API or runtime error, `2` wrong usage
+  (`compliance` has its own, above).
 
 ## Development
 
@@ -394,7 +479,10 @@ registration test needs the fake registrar and payment gateway
 (`RDNS_REGISTRAR=fake`, `RDNS_BILLING=fake`): it checks, registers and
 cancels (the name is released); `RDNS_IT_PAY_DOMAIN=1` also pays one
 registration, which stays in the organization. It skips on deployments
-without the domains module, a registrar or a payment gateway.
+without the domains module, a registrar or a payment gateway. The
+compliance test reads the plan catalog, runs the baseline profile on the
+organization and verifies its audit stream (skipped without an audit
+stream).
 
 The managed-mode test (managed terms and parent delegation) needs the org on
 a paid plan. The bootstrap moves the org to Starter through the e2e hook

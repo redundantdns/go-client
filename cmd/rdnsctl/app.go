@@ -60,6 +60,23 @@ func usagef(format string, args ...any) error {
 	return usageError{message: fmt.Sprintf(format, args...)}
 }
 
+// exitError ends the command with a specific exit code (compliance: 0
+// pass, 1 warn, 2 fail, 3 error; audit verify: 1 when it fails). err, when
+// set, is printed like any error.
+type exitError struct {
+	code int
+	err  error
+}
+
+func (err exitError) Error() string {
+	if err.err == nil {
+		return fmt.Sprintf("exit %d", err.code)
+	}
+	return err.err.Error()
+}
+
+func (err exitError) Unwrap() error { return err.err }
+
 // leafCommands are commands without subcommands.
 func leafCommands() map[string]command {
 	return map[string]command{
@@ -69,11 +86,22 @@ func leafCommands() map[string]command {
 		"attach":  {summary: "Attach a provider connection to a zone", usage: "rdnsctl attach <zone> --connection <connectionId> [--provider-zone-id ID] [--adopt-existing] [--label NAME]", run: runAttach},
 		"detach":  {summary: "Detach a provider from a zone", usage: "rdnsctl detach <zone> <attachmentId> [--delete-remote --yes]", run: runDetach},
 		"version": {summary: "Print the version", usage: "rdnsctl version", run: runVersion},
+		"compliance": {summary: "Compliance posture: run a profile now (exit 0 pass, 1 warn, 2 fail, 3 error), record a run, or read the last report",
+			usage: complianceUsage, run: runCompliance},
 	}
 }
 
 // groups are commands with subcommands.
 func groups() map[string]group {
+	all := coreGroups()
+	for name, commandGroup := range opsGroups() {
+		all[name] = commandGroup
+	}
+	return all
+}
+
+// coreGroups are the zone, provider, domain and alert commands.
+func coreGroups() map[string]group {
 	return map[string]group{
 		"zones": {summary: "Canonical zones", subcommands: map[string]command{
 			"list":   {summary: "List zones", usage: "rdnsctl zones list", run: runZonesList},
@@ -114,7 +142,8 @@ func groups() map[string]group {
 		}},
 		"domains": domainsGroup(),
 		"admin": {summary: "Platform admin operations (dashboard session of a platform admin)", subcommands: map[string]command{
-			"domains": {summary: "Domains of the reseller account; register or renew for an organization without a payment", usage: adminDomainsUsage + "\n" + adminRegisterFlagsUsage, run: runAdminDomains},
+			"domains":  {summary: "Domains of the reseller account; register or renew for an organization without a payment", usage: adminDomainsUsage + "\n" + adminRegisterFlagsUsage, run: runAdminDomains},
+			"licenses": {summary: "Issue and manage the licenses of self-hosted installations", usage: adminLicensesUsage + "\n" + adminLicenseIssueFlags, run: runAdminLicenses},
 		}},
 		"alerts": {summary: "Alerts", subcommands: map[string]command{
 			"list":     {summary: "Alert history, newest first", usage: "rdnsctl alerts list [--zone ZONE] [--rule RULE] [--state firing|resolved] [--limit N]", run: runAlertsList},
@@ -136,6 +165,20 @@ func (cli *app) run(ctx context.Context, args []string) int {
 	err := cli.dispatch(ctx, args)
 	if err == nil {
 		return 0
+	}
+	var exit exitError
+	if errors.As(err, &exit) {
+		var usage usageError
+		switch {
+		case exit.err == nil:
+		case errors.As(exit.err, &usage):
+			fmt.Fprintln(cli.stderr, "rdnsctl:", usage.message)
+		case errors.Is(exit.err, flag.ErrHelp):
+			return 0
+		default:
+			fmt.Fprintln(cli.stderr, "rdnsctl:", describeError(exit.err))
+		}
+		return exit.code
 	}
 	var usage usageError
 	if errors.As(err, &usage) {

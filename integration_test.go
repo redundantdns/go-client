@@ -636,3 +636,55 @@ func TestIntegrationDomainRegistration(t *testing.T) {
 		}
 	}
 }
+
+// TestIntegrationComplianceAndAuditStream reads the organization's
+// compliance posture, the plan catalog and verifies its audit stream (the
+// bootstrap user owns its organization). A deployment without a compliance
+// checker or an audit stream answers 503: that part is skipped.
+func TestIntegrationComplianceAndAuditStream(t *testing.T) {
+	client := integrationClient(t)
+	ctx := context.Background()
+
+	catalog, err := client.Plans.Catalog(ctx)
+	if err != nil {
+		t.Fatalf("plans: %v", err)
+	}
+	if catalog.Trial.Days <= 0 || !catalog.IntervalOnSale(redundantdns.IntervalMonthly) || catalog.Plan("trial") != nil {
+		t.Errorf("catalog trial = %+v, intervals = %v", catalog.Trial, catalog.Intervals)
+	}
+
+	report, err := client.Compliance.Report(ctx, redundantdns.ComplianceBaseline, "")
+	switch {
+	case redundantdns.HasCode(err, redundantdns.CodeComplianceUnavailable):
+		t.Log("compliance is not available on this deployment")
+	case err != nil:
+		t.Fatalf("compliance report: %v", err)
+	default:
+		if report.Profile != redundantdns.ComplianceBaseline || report.Scope != redundantdns.ComplianceScopeOrg || len(report.Controls) == 0 || report.CheckedAt.IsZero() {
+			t.Errorf("compliance report = %+v", report)
+		}
+		counted := report.Summary.Pass + report.Summary.Warn + report.Summary.Fail + report.Summary.NotApplicable
+		if counted != len(report.Controls) {
+			t.Errorf("summary %+v does not count %d controls", report.Summary, len(report.Controls))
+		}
+		t.Logf("compliance %s: %s (%+v)", report.Profile, report.Status, report.Summary)
+		if _, err := client.Compliance.Report(ctx, "no-such-profile", ""); !redundantdns.HasCode(err, redundantdns.CodeUnknownProfile) {
+			t.Errorf("unknown profile err = %v", err)
+		}
+	}
+
+	verify, err := client.Audit.Verify(ctx, "", "")
+	if redundantdns.HasCode(err, redundantdns.CodeAuditStreamUnavailable) {
+		t.Skip("no audit stream on this deployment")
+	}
+	if err != nil {
+		t.Fatalf("audit verify: %v", err)
+	}
+	if verify.Org == "" || verify.From == "" || verify.To == "" {
+		t.Errorf("audit verify = %+v", verify)
+	}
+	if !verify.OK {
+		t.Errorf("audit stream verification failed: %+v", verify.Problems)
+	}
+	t.Logf("audit stream: %d segments, %d lines, %d sealed", verify.Segments, verify.Lines, verify.Sealed)
+}

@@ -62,6 +62,9 @@ type Fake struct {
 	// domainState is the domains module: domains, contacts, the Domain
 	// Registration Terms acceptance and the simulated registrar.
 	domainState fakeDomains
+	// ops holds licenses, org exports, compliance reports and the audit
+	// stream.
+	ops fakeOps
 }
 
 // NewFake starts a fake API server closed when the test ends.
@@ -79,6 +82,7 @@ func NewFake(tb testing.TB) *Fake {
 		oauth:             newFakeOAuth(),
 		plan:              "free",
 		domainState:       newFakeDomains(),
+		ops:               newFakeOps(),
 	}
 	_, rules := MustFixture(tb, "alert_rules")
 	if err := json.Unmarshal(rules, &fake.rules); err != nil {
@@ -164,8 +168,10 @@ func (fake *Fake) routes() http.Handler {
 				return
 			}
 			// The fake checkout page is opened in a browser, without a token.
+			// The plan catalog is public; an export download link carries its
+			// own one-time token.
 			public := request.URL.Path == "/v1/legal/versions" || request.URL.Path == fakeCheckoutPath ||
-				strings.HasPrefix(request.URL.Path, "/oauth/")
+				strings.HasPrefix(request.URL.Path, "/oauth/") || request.URL.Path == "/v1/plans" || isExportDownload(request.URL.Path)
 			if !public {
 				if request.Header.Get("Authorization") != "Bearer "+fake.Token {
 					writeError(writer, http.StatusUnauthorized, "unauthorized", "missing or invalid token")
@@ -187,6 +193,7 @@ func (fake *Fake) routes() http.Handler {
 	fake.mountLegal(handle)
 	fake.mountOAuth(handle)
 	fake.mountDomains(handle)
+	fake.mountOps(handle)
 	mux.HandleFunc("/", func(writer http.ResponseWriter, request *http.Request) {
 		writeError(writer, http.StatusNotFound, "notFound", "route not found")
 	})

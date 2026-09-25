@@ -70,6 +70,10 @@ type Client struct {
 	Legal       *LegalService
 	OAuth       *OAuthService
 	Domains     *DomainsService
+	Licenses    *LicensesService
+	Exports     *ExportsService
+	Compliance  *ComplianceService
+	Plans       *PlansService
 }
 
 // Option configures a Client.
@@ -187,6 +191,10 @@ func (client *Client) bindServices() {
 	client.Legal = &LegalService{client: client}
 	client.OAuth = &OAuthService{client: client}
 	client.Domains = &DomainsService{client: client}
+	client.Licenses = &LicensesService{client: client}
+	client.Exports = &ExportsService{client: client}
+	client.Compliance = &ComplianceService{client: client}
+	client.Plans = &PlansService{client: client}
 }
 
 // BaseURL returns the deployment URL.
@@ -280,6 +288,33 @@ func (client *Client) send(ctx context.Context, call request) (*response, error)
 
 // sendOnce performs one HTTP round trip.
 func (client *Client) sendOnce(ctx context.Context, call request, target string, payload []byte) (*response, error) {
+	httpRequest, err := client.newHTTPRequest(ctx, call, target, payload)
+	if err != nil {
+		return nil, err
+	}
+	httpResponse, err := client.httpClient.Do(httpRequest)
+	if err != nil {
+		return nil, fmt.Errorf("%s %s: %w", call.method, call.path, err)
+	}
+	defer func() { _ = httpResponse.Body.Close() }()
+	limit := int64(-1)
+	if httpResponse.StatusCode >= 300 {
+		limit = maxErrorBody
+	}
+	var reader io.Reader = httpResponse.Body
+	if limit > 0 {
+		reader = io.LimitReader(httpResponse.Body, limit)
+	}
+	body, err := io.ReadAll(reader)
+	if err != nil {
+		return nil, fmt.Errorf("%s %s: read response: %w", call.method, call.path, err)
+	}
+	return &response{status: httpResponse.StatusCode, header: httpResponse.Header, body: body, cookies: httpResponse.Cookies()}, nil
+}
+
+// newHTTPRequest builds the HTTP request of a call: body, content type,
+// credentials and organization header.
+func (client *Client) newHTTPRequest(ctx context.Context, call request, target string, payload []byte) (*http.Request, error) {
 	var bodyReader io.Reader
 	if payload != nil {
 		bodyReader = bytes.NewReader(payload)
@@ -311,24 +346,7 @@ func (client *Client) sendOnce(ctx context.Context, call request, target string,
 	if client.orgID != "" {
 		httpRequest.Header.Set(OrgHeader, client.orgID)
 	}
-	httpResponse, err := client.httpClient.Do(httpRequest)
-	if err != nil {
-		return nil, fmt.Errorf("%s %s: %w", call.method, call.path, err)
-	}
-	defer func() { _ = httpResponse.Body.Close() }()
-	limit := int64(-1)
-	if httpResponse.StatusCode >= 300 {
-		limit = maxErrorBody
-	}
-	var reader io.Reader = httpResponse.Body
-	if limit > 0 {
-		reader = io.LimitReader(httpResponse.Body, limit)
-	}
-	body, err := io.ReadAll(reader)
-	if err != nil {
-		return nil, fmt.Errorf("%s %s: read response: %w", call.method, call.path, err)
-	}
-	return &response{status: httpResponse.StatusCode, header: httpResponse.Header, body: body, cookies: httpResponse.Cookies()}, nil
+	return httpRequest, nil
 }
 
 // resolve joins the base URL, an API path and a query string.

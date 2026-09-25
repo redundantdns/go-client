@@ -52,6 +52,10 @@ func (apiError *APIError) Is(target error) bool {
 		return apiError.StatusCode == http.StatusConflict
 	case ErrUnprocessable:
 		return apiError.StatusCode == http.StatusUnprocessableEntity
+	case ErrGone:
+		return apiError.StatusCode == http.StatusGone
+	case ErrLicenseDegraded:
+		return apiError.Code == CodeLicenseDegraded
 	case ErrLegalAcceptanceRequired:
 		// 428 is shared with managed_terms_required, which is not about the
 		// user's Terms of Service acceptance.
@@ -74,12 +78,19 @@ func (apiError *APIError) Is(target error) bool {
 
 // Sentinel errors for errors.Is.
 var (
-	ErrBadRequest              = errors.New("bad request")
-	ErrUnauthorized            = errors.New("unauthorized")
-	ErrForbidden               = errors.New("forbidden")
-	ErrNotFound                = errors.New("not found")
-	ErrConflict                = errors.New("conflict")
-	ErrUnprocessable           = errors.New("unprocessable")
+	ErrBadRequest    = errors.New("bad request")
+	ErrUnauthorized  = errors.New("unauthorized")
+	ErrForbidden     = errors.New("forbidden")
+	ErrNotFound      = errors.New("not found")
+	ErrConflict      = errors.New("conflict")
+	ErrUnprocessable = errors.New("unprocessable")
+	// ErrGone: 410, the object expired (an org export past its 24 hours,
+	// exportExpired; a registration checkout, checkoutExpired).
+	ErrGone = errors.New("gone")
+	// ErrLicenseDegraded: 503 license_degraded, the self-hosted
+	// installation's license is degraded and /v1 is read-only (exports,
+	// billing, legal and a few safe writes keep working).
+	ErrLicenseDegraded         = errors.New("license degraded")
 	ErrLegalAcceptanceRequired = errors.New("legal acceptance required")
 	// ErrManagedTermsRequired: the organization has not accepted the
 	// current Managed Provider Terms and Acceptable Use Policy, needed to
@@ -193,6 +204,24 @@ const (
 	CodeZoneNameTaken             = "zoneNameTaken"
 	CodeZoneNotFound              = "zoneNotFound"
 	CodeTooManyClientRegistration = "too_many_requests"
+
+	// Licenses, org export, compliance and the audit stream.
+	CodeAuditStreamUnavailable   = "auditStreamUnavailable"
+	CodeComplianceUnavailable    = "complianceUnavailable"
+	CodeDownloadTokenInvalid     = "downloadTokenInvalid"
+	CodeExportExpired            = "exportExpired"
+	CodeExportInProgress         = "exportInProgress"
+	CodeExportNotFound           = "exportNotFound"
+	CodeInvalidClaims            = "invalidClaims"
+	CodeInvalidLicenseStatus     = "invalidLicenseStatus"
+	CodeInvalidRange             = "invalidRange"
+	CodeLicenseDegraded          = "license_degraded"
+	CodeLicenseExists            = "licenseExists"
+	CodeLicenseIssuerUnavailable = "license_issuer_unavailable"
+	CodeLicenseNotFound          = "licenseNotFound"
+	CodePassphraseInvalid        = "passphraseInvalid"
+	CodeTooManyRequests          = "too_many_requests"
+	CodeUnknownProfile           = "unknownProfile"
 )
 
 // HasCode reports whether err is an *APIError with one of the codes.
