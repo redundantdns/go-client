@@ -130,7 +130,7 @@ func TestDomainsChangeCommands(t *testing.T) {
 	if out := h.run("", "domains", "autorenew", "example.com", "maybe"); out.code != 2 {
 		t.Errorf("autorenew maybe = %+v", out)
 	}
-	if out := h.ok("domains", "renew", "example.com", "--years", "3"); !strings.Contains(out, "renewed for 3 year(s)") {
+	if out := h.ok("domains", "renew", "example.com", "--years", "3"); !strings.Contains(out, "renewed for 3 years") {
 		t.Errorf("renew = %s", out)
 	}
 	if out := h.run("", "domains", "nameservers", "set", "example.com", "ns1.example.net"); out.code != 2 {

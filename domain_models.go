@@ -17,6 +17,24 @@ const (
 	DomainStatusDeleted = "deleted"
 	// DomainStatusUnknown: not synced with the registrar yet.
 	DomainStatusUnknown = "unknown"
+	// DomainStatusPaymentPending: a registration through the platform whose
+	// checkout is open; the name is claimed and nothing reached the
+	// registrar. Cancel it with Domains.CancelRegistration.
+	DomainStatusPaymentPending = "payment_pending"
+	// DomainStatusRegistering: the registration is paid (or granted by an
+	// operator) and the registrar job runs or retries.
+	DomainStatusRegistering = "registering"
+	// DomainStatusRegistrationFailed: paid, but the registrar refused the
+	// registration; Domains.RetryRegistration runs it again once the cause
+	// is fixed (there is no automatic refund).
+	DomainStatusRegistrationFailed = "registration_failed"
+)
+
+// Who paid a registration or renewal (DomainRegistration.PaidBy,
+// DomainRenewal.PaidBy).
+const (
+	PaidByStripe   = "stripe"
+	PaidByOperator = "operator"
 )
 
 // Transfer states (DomainTransfer.State).
@@ -36,6 +54,7 @@ const (
 
 // Registrar job operations (DomainJob.Op).
 const (
+	DomainOpRegister    = "register"
 	DomainOpTransfer    = "transfer"
 	DomainOpNameservers = "nameservers"
 	DomainOpLock        = "lock"
@@ -68,6 +87,11 @@ type Domain struct {
 	Registrant *Contact `json:"registrant,omitempty"`
 	// Transfer is nil for a domain that was not transferred in.
 	Transfer *DomainTransfer `json:"transfer,omitempty"`
+	// Registration is set for a domain registered through the platform:
+	// its price, the checkout that pays it and the registrar job's outcome.
+	Registration *DomainRegistration `json:"registration,omitempty"`
+	// Renewal is the last paid renewal (billing on), nil otherwise.
+	Renewal *DomainRenewal `json:"renewal,omitempty"`
 	// Zone is set when the organization has a zone with the same name.
 	Zone *DomainZoneLink `json:"zone,omitempty"`
 	// PendingJobs are the registrar mutations not done yet (queued, running
@@ -77,6 +101,12 @@ type Domain struct {
 	LastError   string      `json:"lastError,omitempty"`
 	CreatedAt   time.Time   `json:"createdAt"`
 	UpdatedAt   time.Time   `json:"updatedAt"`
+}
+
+// PaymentPending reports whether the domain is a registration waiting for
+// its checkout to be paid.
+func (domain *Domain) PaymentPending() bool {
+	return domain.Status == DomainStatusPaymentPending
 }
 
 // DomainContacts are the registrar contact handles of a domain.

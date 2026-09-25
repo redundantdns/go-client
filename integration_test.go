@@ -498,3 +498,141 @@ func TestIntegrationManagedTermsAndParentDelegation(t *testing.T) {
 		}
 	}
 }
+
+// TestIntegrationDomainRegistration covers the registration of a new
+// domain against a deployment with the fake registrar (RDNS_REGISTRAR=fake)
+// and the fake payment gateway (RDNS_BILLING=fake): check, the refusals,
+// register (a checkout opens) and cancel, which releases the name. With
+// RDNS_IT_PAY_DOMAIN=1 it also pays a registration through the fake
+// checkout and waits for it to become active; that domain stays in the
+// organization (a paid registration is never removed), so it is opt-in. It
+// skips on deployments that do not serve domain registration or have no
+// registrar or payment gateway.
+func TestIntegrationDomainRegistration(t *testing.T) {
+	baseURL := os.Getenv("RDNS_BASE_URL")
+	if baseURL == "" {
+		t.Skip("RDNS_BASE_URL is not set")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+	anonymous, err := redundantdns.New(redundantdns.WithBaseURL(baseURL))
+	if err != nil {
+		t.Fatal(err)
+	}
+	versions, err := anonymous.Account.LegalVersions(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if versions.DomainTerms == "" {
+		t.Skip("the deployment does not serve domainTerms (domains module not deployed)")
+	}
+	client := integrationClient(t)
+	requirePaidPlan(ctx, t, client, baseURL)
+
+	suffix := time.Now().UnixNano()
+	name := fmt.Sprintf("go-client-it-%d.tools", suffix)
+	quotes, err := client.Domains.Check(ctx, []string{name, "taken-go-client.tools", "premium-go-client.tools"}, 1)
+	switch {
+	case redundantdns.IsNotFound(err):
+		t.Skip("the deployment does not serve GET /v1/domains/check (registration not deployed)")
+	case redundantdns.HasCode(err, redundantdns.CodeRegistrarUnavailable):
+		t.Skip("the deployment has no registrar (RDNS_REGISTRAR=none)")
+	case err != nil:
+		t.Fatalf("check: %v", err)
+	}
+	if len(quotes) != 3 || !quotes[0].Available || quotes[0].PriceCents <= 0 || quotes[1].Available || !quotes[2].Premium {
+		t.Fatalf("quotes = %+v (is the registrar the fake one?)", quotes)
+	}
+
+	if _, err := client.Legal.AcceptDomain(ctx, versions.DomainTerms); err != nil {
+		t.Fatalf("accept domain terms: %v", err)
+	}
+	if profile, err := client.Domains.RegistrantProfile(ctx); err != nil {
+		t.Fatal(err)
+	} else if profile == nil {
+		if _, err := client.Domains.SetRegistrantProfile(ctx, redundantdns.ContactFields{
+			FirstName: "Ada", LastName: "Lovelace", Email: "go-client-integration@example.com", Phone: "+44.2071234567",
+			Street: "Main Street", City: "London", PostalCode: "SW1A 1AA", Country: "GB",
+		}); err != nil {
+			t.Fatalf("registrant profile: %v", err)
+		}
+	}
+
+	checkout, err := client.Domains.Register(ctx, redundantdns.DomainRegisterCreate{Name: name})
+	if redundantdns.HasCode(err, redundantdns.CodeBillingUnavailable) {
+		t.Skip("the deployment has no payment gateway (RDNS_BILLING=off)")
+	}
+	if err != nil {
+		t.Fatalf("register: %v", err)
+	}
+	cancelled := false
+	t.Cleanup(func() {
+		if !cancelled {
+			_ = client.Domains.CancelRegistration(context.Background(), name)
+		}
+	})
+	if !checkout.NeedsPayment() || !checkout.Domain.PaymentPending() || checkout.Domain.Registration == nil ||
+		checkout.Domain.Registration.PriceCents != quotes[0].PriceCents {
+		t.Fatalf("checkout = %+v", checkout)
+	}
+	if _, err := client.Domains.Register(ctx, redundantdns.DomainRegisterCreate{Name: "taken-go-client.tools"}); !redundantdns.HasCode(err, redundantdns.CodeDomainUnavailable) {
+		t.Errorf("taken name err = %v", err)
+	}
+	if _, err := client.Domains.Register(ctx, redundantdns.DomainRegisterCreate{Name: "premium-go-client.tools"}); !redundantdns.HasCode(err, redundantdns.CodeDomainPremium) {
+		t.Errorf("premium name err = %v", err)
+	}
+	if err := client.Domains.CancelRegistration(ctx, name); err != nil {
+		t.Fatalf("cancel: %v", err)
+	}
+	cancelled = true
+	if _, err := client.Domains.Get(ctx, name); !redundantdns.IsNotFound(err) {
+		t.Errorf("cancelled registration err = %v", err)
+	}
+	if again, err := client.Domains.Check(ctx, []string{name}, 1); err != nil || !again[0].Available {
+		t.Errorf("released name = %+v, %v", again, err)
+	}
+
+	if os.Getenv("RDNS_IT_PAY_DOMAIN") != "1" {
+		t.Log("RDNS_IT_PAY_DOMAIN is not 1: the paid registration is skipped (it would leave a domain in the organization)")
+		return
+	}
+	paidName := fmt.Sprintf("go-client-it-paid-%d.tools", suffix)
+	paid, err := client.Domains.Register(ctx, redundantdns.DomainRegisterCreate{Name: paidName})
+	if err != nil {
+		t.Fatalf("register to pay: %v", err)
+	}
+	// The fake checkout pays at once and redirects to the dashboard.
+	noRedirect := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, paid.CheckoutURL, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	answer, err := noRedirect.Do(request)
+	if err != nil {
+		t.Fatalf("pay the fake checkout: %v", err)
+	}
+	_ = answer.Body.Close()
+	if answer.StatusCode >= 400 {
+		t.Fatalf("pay the fake checkout: %d", answer.StatusCode)
+	}
+	for {
+		domain, err := client.Domains.Get(ctx, paidName)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if domain.Status == redundantdns.DomainStatusActive {
+			if !domain.Registration.Paid() || domain.Registration.PaidBy != redundantdns.PaidByStripe {
+				t.Errorf("registration = %+v", domain.Registration)
+			}
+			return
+		}
+		if domain.Status == redundantdns.DomainStatusRegistrationFailed {
+			t.Fatalf("the registration failed: %s", domain.LastError)
+		}
+		select {
+		case <-ctx.Done():
+			t.Fatalf("the registration is still %s", domain.Status)
+		case <-time.After(2 * time.Second):
+		}
+	}
+}

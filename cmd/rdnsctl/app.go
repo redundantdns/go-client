@@ -113,6 +113,9 @@ func groups() map[string]group {
 			"check": {summary: "Check the parent NS set against the NS plan now", usage: "rdnsctl delegation check <zone>", run: runDelegationCheck},
 		}},
 		"domains": domainsGroup(),
+		"admin": {summary: "Platform admin operations (dashboard session of a platform admin)", subcommands: map[string]command{
+			"domains": {summary: "Domains of the reseller account; register or renew for an organization without a payment", usage: adminDomainsUsage + "\n" + adminRegisterFlagsUsage, run: runAdminDomains},
+		}},
 		"alerts": {summary: "Alerts", subcommands: map[string]command{
 			"list":     {summary: "Alert history, newest first", usage: "rdnsctl alerts list [--zone ZONE] [--rule RULE] [--state firing|resolved] [--limit N]", run: runAlertsList},
 			"resolve":  {summary: "Resolve a firing alert by hand", usage: "rdnsctl alerts resolve <eventId>", run: runAlertsResolve},
@@ -330,10 +333,16 @@ func describeError(err error) string {
 			dash(requirement.URL), dash(requirement.Version), dash(requirement.Version))
 	case errors.Is(err, redundantdns.ErrDomainTermsRequired):
 		requirement, _ := redundantdns.DomainTermsRequired(err)
-		text += fmt.Sprintf(" (read %s, then accept version %s with rdnsctl domains terms accept %s, or pass --accept-terms %s to domains transfer)",
+		text += fmt.Sprintf(" (read %s, then accept version %s with rdnsctl domains terms accept %s, or pass --accept-terms %s to domains transfer or domains register)",
 			dash(requirement.URL), dash(requirement.Version), dash(requirement.Version), dash(requirement.Version))
 	case redundantdns.HasCode(err, redundantdns.CodeRegistrantProfileRequired):
 		text += " (set it with rdnsctl domains registrant-profile set, or pass --contact)"
+	case redundantdns.HasCode(err, redundantdns.CodeDomainRegistrationPending):
+		text += " (pay its checkout, or cancel it with rdnsctl domains cancel)"
+	case redundantdns.HasCode(err, redundantdns.CodeBillingUnavailable):
+		text += " (this deployment has no payment gateway: domains cannot be paid for here)"
+	case redundantdns.HasCode(err, redundantdns.CodeDomainUnavailable):
+		text += " (see rdnsctl domains check)"
 	}
 	if len(apiError.Details) > 0 {
 		text += "\n" + string(apiError.Details)

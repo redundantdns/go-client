@@ -100,15 +100,6 @@ func (service *DomainsService) SetAutoRenew(ctx context.Context, name string, au
 	return service.mutate(ctx, http.MethodPut, domainPath(name, "/autorenew"), body)
 }
 
-// Renew renews the domain for 1 to 10 years (admins; 0 = the server
-// default, 1).
-func (service *DomainsService) Renew(ctx context.Context, name string, years int) (*DomainMutationResult, error) {
-	body := struct {
-		Years int `json:"years,omitempty"`
-	}{Years: years}
-	return service.mutate(ctx, http.MethodPost, domainPath(name, "/renew"), body)
-}
-
 // AuthCode fetches the transfer-out auth code from the registrar (admins;
 // never gated, audited). The platform does not store it.
 func (service *DomainsService) AuthCode(ctx context.Context, name string) (*DomainAuthCode, error) {
@@ -126,9 +117,10 @@ func (service *DomainsService) ChangeRegistrant(ctx context.Context, name, conta
 	return service.mutate(ctx, http.MethodPost, domainPath(name, "/registrant"), body)
 }
 
-// Delete forgets a domain whose transfer failed and releases the name
-// (admins; 409 domainNotRemovable otherwise). It never deletes a
-// registration.
+// Delete forgets a domain whose transfer failed, or cancels an unpaid
+// registration (payment_pending: its checkout is closed first, 503
+// billing_unavailable when it cannot be), and releases the name (admins;
+// 409 domainNotRemovable otherwise). A paid registration is never removed.
 func (service *DomainsService) Delete(ctx context.Context, name string) error {
 	return service.client.do(ctx, request{method: http.MethodDelete, path: domainPath(name, "")}, &okResponse{})
 }

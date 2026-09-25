@@ -163,7 +163,10 @@ func (fake *Fake) routes() http.Handler {
 				writeError(writer, status, "injected", "injected failure")
 				return
 			}
-			if request.URL.Path != "/v1/legal/versions" && !strings.HasPrefix(request.URL.Path, "/oauth/") {
+			// The fake checkout page is opened in a browser, without a token.
+			public := request.URL.Path == "/v1/legal/versions" || request.URL.Path == fakeCheckoutPath ||
+				strings.HasPrefix(request.URL.Path, "/oauth/")
+			if !public {
 				if request.Header.Get("Authorization") != "Bearer "+fake.Token {
 					writeError(writer, http.StatusUnauthorized, "unauthorized", "missing or invalid token")
 					return

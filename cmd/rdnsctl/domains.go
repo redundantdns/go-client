@@ -5,7 +5,6 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"strconv"
 	"strings"
 	"time"
 
@@ -27,7 +26,7 @@ const (
 
 // domainsGroup is the domains command group.
 func domainsGroup() group {
-	return group{summary: "Domains at the registrar (the organization is the registrant)", subcommands: map[string]command{
+	return group{summary: "Domains at the registrar: register, transfer in and manage (the organization is the registrant)", subcommands: map[string]command{
 		"list":               {summary: "List the organization's domains", usage: "rdnsctl domains list", run: runDomainsList},
 		"get":                {summary: "Show a domain", usage: "rdnsctl domains get <domain>", run: runDomainsGet},
 		"transfer":           {summary: "Transfer a domain in with its auth code", usage: domainsTransferUsage, run: runDomainsTransfer},
@@ -38,14 +37,18 @@ func domainsGroup() group {
 		"lock":               {summary: "Turn the transfer lock on", usage: "rdnsctl domains lock <domain>", run: runDomainsLock},
 		"unlock":             {summary: "Turn the transfer lock off (to transfer out)", usage: "rdnsctl domains unlock <domain>", run: runDomainsUnlock},
 		"autorenew":          {summary: "Turn auto-renewal on or off", usage: "rdnsctl domains autorenew <domain> on|off", run: runDomainsAutoRenew},
-		"renew":              {summary: "Renew a domain", usage: "rdnsctl domains renew <domain> [--years N]", run: runDomainsRenew},
+		"renew":              {summary: "Renew a domain (opens a checkout when billing is on)", usage: domainsRenewUsage, run: runDomainsRenew},
+		"check":              {summary: "Availability and price of names to register", usage: domainsCheckUsage, run: runDomainsCheck},
+		"register":           {summary: "Register a new domain, paid through a checkout", usage: domainsRegisterUsage, run: runDomainsRegister},
+		"register-retry":     {summary: "Run a paid registration that failed again", usage: "rdnsctl domains register-retry <domain>", run: runDomainsRegisterRetry},
+		"cancel":             {summary: "Cancel an unpaid registration and release the name", usage: "rdnsctl domains cancel <domain> [--yes]", run: runDomainsCancel},
 		"authcode":           {summary: "Print the transfer-out auth code", usage: "rdnsctl domains authcode <domain>", run: runDomainsAuthCode},
 		"registrant":         {summary: "Change the registrant (trade) to another contact", usage: domainsRegistrantUsage, run: runDomainsRegistrant},
 		"contacts":           {summary: "Registrant contacts", usage: domainsContactsUsage, run: runDomainsContacts},
 		"registrant-profile": {summary: "The organization's registrant profile (default contact)", usage: domainsRegistrantProfileUsage, run: runDomainsRegistrantProfile},
 		"export":             {summary: "Export contacts, domains and zone files as JSON", usage: "rdnsctl domains export [--out FILE]", run: runDomainsExport},
 		"terms":              {summary: "Domain Registration Terms of the organization", usage: domainsTermsUsage, run: runDomainsTerms},
-		"delete":             {summary: "Forget a domain whose transfer failed", usage: "rdnsctl domains delete <domain> [--yes]", run: runDomainsDelete},
+		"delete":             {summary: "Forget a domain whose transfer failed (or cancel an unpaid registration)", usage: "rdnsctl domains delete <domain> [--yes]", run: runDomainsDelete},
 	}}
 }
 
@@ -320,21 +323,6 @@ func runDomainsAutoRenew(ctx context.Context, cli *app, args []string) error {
 		return err
 	}
 	return cli.printMutation(shared, result, "auto-renewal "+onOff(enable))
-}
-
-func runDomainsRenew(ctx context.Context, cli *app, args []string) error {
-	shared := &globals{}
-	flags := newFlagSet("domains renew", shared)
-	years := flags.Int("years", 1, "years to add (1 to 10)")
-	client, positionals, err := cli.begin(flags, shared, args, 1, "rdnsctl domains renew <domain> [--years N]")
-	if err != nil {
-		return err
-	}
-	result, err := client.Domains.Renew(ctx, positionals[0], *years)
-	if err != nil {
-		return err
-	}
-	return cli.printMutation(shared, result, "renewed for "+strconv.Itoa(*years)+" year(s), expires "+formatDate(result.Domain.ExpiresAt))
 }
 
 func runDomainsAuthCode(ctx context.Context, cli *app, args []string) error {

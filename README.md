@@ -107,11 +107,43 @@ code, err := client.Domains.AuthCode(ctx, "example.com")     // transfer out, an
 ```
 
 Also: `List`/`All`, `Get`, `TransferStatus`, `SetNameservers`, `SetLock`,
-`SetAutoRenew`, `Renew`, `ChangeRegistrant` (trade, repeat the name),
+`SetAutoRenew`, `ChangeRegistrant` (trade, repeat the name),
 `Contacts`/`CreateContact`/`UpdateContact`/`DeleteContact`,
 `RegistrantProfile`, `Export`/`ExportJSON` and, for platform admins,
 `AdminList`/`AdminAssign`. The Free plan holds one domain (`402
 plan_limit_reached`, `ErrPaymentRequired`).
+
+**Registering a new domain** is paid once, through a hosted checkout:
+`Check` quotes availability and the customer price (up to 20 names),
+`Register` claims the name, creates the domain in `payment_pending` and
+returns the `CheckoutURL` to open in a browser; the registrar job runs when
+it is paid (poll `Get`: `registering`, then `active`, or
+`registration_failed`, retried with `RetryRegistration` once the cause is
+fixed; there is no automatic refund). `CancelRegistration` closes an unpaid
+checkout and releases the name. `Renew` returns a `DomainCheckout` too:
+with billing on it opens a checkout (`NeedsPayment()`), with billing off the
+registrar renews at once (`Job`).
+
+```go
+quotes, err := client.Domains.Check(ctx, []string{"example.tools", "example.dev"}, 1)
+for _, quote := range quotes {
+	fmt.Println(quote.Name, quote.Available, quote.Price()) // example.tools true 33.00 USD
+}
+checkout, err := client.Domains.Register(ctx, redundantdns.DomainRegisterCreate{
+	Name: "example.tools", Years: 1, ApplyZoneNS: true, AcceptDomainTerms: versions.DomainTerms,
+})
+fmt.Println("pay at", checkout.CheckoutURL) // the domain is payment_pending until then
+```
+
+Errors of a registration: `409 domainUnavailable`, `422 domainPremium`
+(premium names are registered on request), `422 invalidYears`, `503
+billing_unavailable` (no payment gateway) or `registrarUnavailable`,
+`409 domainRegistrationPending` for changes before it is registered, `409
+domainNotRetryable`, `409 domainRenewalInProgress`. Platform admins can
+register or renew for an organization without a payment:
+`AdminRegister(ctx, orgID, AdminDomainRegisterCreate{..., SkipPayment: true})`
+(the organization must have accepted the terms itself; no plan limit) and
+`AdminRenew(ctx, orgID, name, AdminDomainRenew{SkipPayment: true})`.
 
 ### Subdomain redundancy
 
@@ -218,6 +250,16 @@ profile and, on the default `free` plan (`SetPlan`), one domain. Seed state
 with `SeedDomain`, `SeedUnassignedDomain`, `SeedContact` and
 `AcceptDomainTerms`.
 
+Registration follows the platform's fake registrar: `GET
+/v1/domains/check` quotes `DomainPriceCents` (a first label starting with
+`taken-` is not available, `premium-` is a premium name). The payment
+gateway is off by default (`503 billing_unavailable`, renewals apply at
+once); `SetDomainBilling(true)` makes `register` and `renew` return a
+checkout URL served by the fake (`GET /fake-stripe/checkout?session=...`,
+no token), which pays at once, or pay it with `PayDomainCheckout(name)`.
+A paid name whose first label starts with `fail-` ends as
+`registration_failed`; `register/retry` then succeeds.
+
 Fixtures for routes the dev lab does not serve yet (`legal_*`,
 `managed_terms_required`, `zone_create_child`) follow the documented API
 contract and are overwritten by the next recording run; `synthetic_*`
@@ -263,6 +305,15 @@ $ rdnsctl domains transfer example.com --apply-zone-ns --accept-terms 2026-09-24
 $ rdnsctl domains apply-zone-ns example.com
 $ rdnsctl domains authcode example.com      # transfer out, any time
 $ rdnsctl domains export --out domains-export.json
+# register a new domain: check the price, then pay the checkout
+$ rdnsctl domains check example.tools example.dev
+DOMAIN         AVAILABLE  PRICE                 NOTE
+example.tools  yes        33.00 USD for 1 year  -
+example.dev    no         -                     registered by someone else
+$ rdnsctl domains register example.tools --apply-zone-ns --accept-domain-terms 2026-09-24 --open
+Registration of example.tools waits for its payment (33.00 USD for 1 year). Pay it at:
+  https://checkout.stripe.com/c/pay/cs_live_...
+Follow it with: rdnsctl domains get example.tools
 ```
 
 Commands: `login`, `logout`, `whoami`, `zones list|get|create|delete|export|status`,
@@ -270,8 +321,8 @@ Commands: `login`, `logout`, `whoami`, `zones list|get|create|delete|export|stat
 `providers list`, `attach`, `detach`, `sync reconcile|verify|adopt|status`,
 `delegation check`, `alerts list|resolve|ack|rules|channels`,
 `legal managed status|accept`, `terraform login`,
-`domains list|get|transfer|transfer-status|sync|nameservers set|apply-zone-ns|lock|unlock|autorenew|renew|authcode|registrant set|contacts|registrant-profile|export|terms|delete`,
-`version`.
+`domains list|get|check|register|register-retry|cancel|transfer|transfer-status|sync|nameservers set|apply-zone-ns|lock|unlock|autorenew|renew|authcode|registrant set|contacts|registrant-profile|export|terms|delete`,
+`admin domains list|assign|register|renew`, `version`.
 Run `rdnsctl help <command>` for the flags.
 
 - Zones are referenced by id (`zone-...`) or name.
@@ -300,6 +351,18 @@ Run `rdnsctl help <command>` for the flags.
   given as flags. `domains authcode`, `unlock`, `sync` and `export` work
   without the terms (the exit guarantee). `domains export --out` writes
   the file with mode `0600` (it holds contact data).
+- `domains register` prints the checkout URL (`--open` opens it in the
+  browser); the domain stays `payment_pending` until it is paid.
+  `--ns a,b` sets the nameservers, `--apply-zone-ns` uses the NS plan of the
+  zone with the same name, `--accept-domain-terms <version>` (alias
+  `--accept-terms`) accepts the terms in the same call. `domains cancel`
+  closes an unpaid checkout and releases the name; `domains
+  register-retry` runs a paid registration that failed again. `domains
+  renew` prints a checkout URL too when the deployment bills renewals.
+- `admin domains register <name> --org ID --skip-payment` and `admin
+  domains renew <name> --org ID --skip-payment` register or renew for an
+  organization without a payment (platform admins; `--org` is required
+  and never taken from `RDNS_ORG` or the saved config).
 - `login` asks for the `domains:*` scopes too; a deployment without the
   domains module gets a token with the other scopes.
 - `terraform login` registers an OAuth client declared as
@@ -307,7 +370,7 @@ Run `rdnsctl help <command>` for the flags.
   listens on `127.0.0.1:38971`, `--port` to change) and saves
   `$XDG_CONFIG_HOME/redundantdns/terraform-oauth.json` for the provider.
 - Destructive commands (`zones delete`, `detach --delete-remote`,
-  `domains delete`, `domains registrant set`, `domains contacts delete`)
+  `domains delete`, `domains cancel`, `domains registrant set`, `domains contacts delete`)
   ask you to type the name unless `--yes` is given.
 - Exit codes: `0` success, `1` API or runtime error, `2` wrong usage.
 
@@ -326,7 +389,12 @@ RDNS_BASE_URL=https://... RDNS_TOKEN=rdns_... go test -tags integration -v ./...
 
 The integration test creates a connection on the `fake` provider, a zone,
 an attachment, records, sync jobs, a delegation check and an alert channel,
-and deletes all of it at the end, also when a step fails.
+and deletes all of it at the end, also when a step fails. The domain
+registration test needs the fake registrar and payment gateway
+(`RDNS_REGISTRAR=fake`, `RDNS_BILLING=fake`): it checks, registers and
+cancels (the name is released); `RDNS_IT_PAY_DOMAIN=1` also pays one
+registration, which stays in the organization. It skips on deployments
+without the domains module, a registrar or a payment gateway.
 
 The managed-mode test (managed terms and parent delegation) needs the org on
 a paid plan. The bootstrap moves the org to Starter through the e2e hook

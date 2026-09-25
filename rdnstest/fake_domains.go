@@ -55,6 +55,11 @@ type fakeDomains struct {
 	contacts      map[string]*redundantdns.Contact
 	terms         *redundantdns.ManagedTermsAcceptance
 	transferReads int
+	// billing is the payment gateway (SetDomainBilling): registrations and
+	// renewals open a checkout when on.
+	billing bool
+	// checkouts are the one-off checkouts by session id.
+	checkouts map[string]*fakeCheckout
 }
 
 // fakeDomain is one domain of the organization and its simulated
@@ -65,12 +70,15 @@ type fakeDomain struct {
 	readsLeft int
 	// failTransfer makes the pending transfer fail instead of completing.
 	failTransfer bool
+	// retried marks a failed registration retried (the retry succeeds).
+	retried bool
 }
 
 func newFakeDomains() fakeDomains {
 	return fakeDomains{
 		domains: map[string]*fakeDomain{}, unassigned: map[string]*redundantdns.Domain{},
 		contacts: map[string]*redundantdns.Contact{}, transferReads: DefaultTransferReads,
+		checkouts: map[string]*fakeCheckout{},
 	}
 }
 
@@ -257,6 +265,7 @@ func (fake *Fake) mountDomains(handle func(string, handler)) {
 	})
 	handle("POST /v1/domains/transfer", fake.transferIn)
 	handle("GET /v1/domains/export", fake.exportDomains)
+	fake.mountRegistration(handle)
 	fake.mountDomainRoutes(handle)
 	fake.mountContacts(handle)
 	fake.mountDomainAdmin(handle)
@@ -269,9 +278,15 @@ func (fake *Fake) mountDomainRoutes(handle func(string, handler)) {
 		writeJSON(writer, http.StatusOK, fake.viewDomain(entry))
 	}))
 	handle("DELETE /v1/domains/{name}", fake.withDomain(func(writer http.ResponseWriter, _ *http.Request, entry *fakeDomain) {
-		if entry.domain.Status != redundantdns.DomainStatusTransferFailed {
-			writeError(writer, http.StatusConflict, redundantdns.CodeDomainNotRemovable, "only a domain whose transfer failed can be removed")
+		unpaid := entry.domain.Status == redundantdns.DomainStatusPaymentPending && !entry.domain.Registration.Paid()
+		if entry.domain.Status != redundantdns.DomainStatusTransferFailed && !unpaid {
+			writeError(writer, http.StatusConflict, redundantdns.CodeDomainNotRemovable,
+				"only a domain whose transfer failed or an unpaid registration can be removed")
 			return
+		}
+		if unpaid {
+			// Its checkout can no longer be paid.
+			fake.closeCheckout(entry.domain.Name, purposeRegister)
 		}
 		delete(fake.domainState.domains, entry.domain.Name)
 		writeJSON(writer, http.StatusOK, map[string]bool{"ok": true})
@@ -359,7 +374,7 @@ func (fake *Fake) transferIn(writer http.ResponseWriter, request *http.Request) 
 		writeError(writer, http.StatusConflict, redundantdns.CodeDomainNameTaken, "this domain belongs to another account")
 		return
 	}
-	if !fake.domainAllowed(writer) {
+	if !fake.domainAllowed(writer, "domain.transfer") {
 		return
 	}
 	if input.AcceptDomainTerms != "" {
@@ -391,15 +406,16 @@ func (fake *Fake) transferIn(writer http.ResponseWriter, request *http.Request) 
 	fake.writeMutationStatus(writer, http.StatusCreated, entry, redundantdns.DomainOpTransfer)
 }
 
-// domainAllowed enforces the Free plan's single domain.
-func (fake *Fake) domainAllowed(writer http.ResponseWriter) bool {
+// domainAllowed enforces the Free plan's single domain for an action
+// (domain.transfer, domain.register).
+func (fake *Fake) domainAllowed(writer http.ResponseWriter, action string) bool {
 	if fake.plan != "free" || len(fake.domainState.domains) < 1 {
 		return true
 	}
 	writeJSON(writer, http.StatusPaymentRequired, map[string]any{
 		"error": redundantdns.CodePlanLimitReached, "message": "the Free plan holds one domain",
 		"details": map[string]any{
-			"action": "domain.transfer", "plan": fake.plan, "limit": 1, "current": len(fake.domainState.domains),
+			"action": action, "plan": fake.plan, "limit": 1, "current": len(fake.domainState.domains),
 			"feature": "domains", "upgradeTo": "starter", "upgradeName": "Starter",
 		},
 	})
@@ -420,7 +436,7 @@ func (fake *Fake) transferOwner(writer http.ResponseWriter, contactID string) (*
 		return profile, true
 	}
 	writeError(writer, http.StatusUnprocessableEntity, redundantdns.CodeRegistrantProfileRequired,
-		"set the organization's registrant profile (or choose a contact) before transferring a domain")
+		"set the organization's registrant profile (or choose a contact) before transferring or registering a domain")
 	return nil, false
 }
 
@@ -492,6 +508,10 @@ func (fake *Fake) domainSettled(writer http.ResponseWriter, entry *fakeDomain) b
 		return false
 	case redundantdns.DomainStatusTransferFailed:
 		writeError(writer, http.StatusConflict, redundantdns.CodeConflict, "the domain's transfer failed: remove it and transfer it again")
+		return false
+	}
+	if registrationOpen(entry) {
+		writeError(writer, http.StatusConflict, redundantdns.CodeDomainRegistrationPending, "the domain is not registered yet: its registration is "+entry.domain.Status)
 		return false
 	}
 	return true
@@ -595,18 +615,17 @@ func (fake *Fake) renew(writer http.ResponseWriter, request *http.Request, entry
 		input.Years = 1
 	}
 	if input.Years < 1 || input.Years > 10 {
-		writeError(writer, http.StatusBadRequest, redundantdns.CodeInvalidBody, "years must be between 1 and 10")
+		writeError(writer, http.StatusBadRequest, redundantdns.CodeInvalidYears, "register or renew for 1 to 10 years")
 		return
 	}
 	if !fake.changeAllowed(writer, entry) {
 		return
 	}
-	expires := time.Now().UTC().Truncate(time.Second)
-	if entry.domain.ExpiresAt != nil {
-		expires = *entry.domain.ExpiresAt
+	if fake.domainState.billing {
+		fake.startPaidRenewal(writer, entry, input.Years)
+		return
 	}
-	expires = expires.AddDate(input.Years, 0, 0)
-	entry.domain.ExpiresAt = &expires
+	extend(entry, input.Years)
 	fake.writeMutation(writer, entry, redundantdns.DomainOpRenew)
 }
 
