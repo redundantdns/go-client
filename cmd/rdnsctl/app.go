@@ -8,6 +8,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"slices"
 	"sort"
 	"strings"
 	"text/tabwriter"
@@ -86,6 +87,7 @@ func leafCommands() map[string]command {
 		"attach":  {summary: "Attach a provider connection to a zone", usage: "rdnsctl attach <zone> --connection <connectionId> [--provider-zone-id ID] [--adopt-existing] [--label NAME]", run: runAttach},
 		"detach":  {summary: "Detach a provider from a zone", usage: "rdnsctl detach <zone> <attachmentId> [--delete-remote --yes]", run: runDetach},
 		"version": {summary: "Print the version", usage: "rdnsctl version", run: runVersion},
+		"billing": {summary: "Show the plan, billing status, limits with their usage and the managed pass-through", usage: billingUsage, run: runBilling},
 		"compliance": {summary: "Compliance posture: run a profile now (exit 0 pass, 1 warn, 2 fail, 3 error), record a run, or read the last report",
 			usage: complianceUsage, run: runCompliance},
 	}
@@ -158,11 +160,16 @@ func coreGroups() map[string]group {
 // run dispatches the command line and returns the exit code.
 func (cli *app) run(ctx context.Context, args []string) int {
 	cli.reader = bufio.NewReader(cli.stdin)
+	args, err := hoistGlobalFlags(args)
+	if err != nil {
+		fmt.Fprintln(cli.stderr, "rdnsctl:", err.Error())
+		return 2
+	}
 	if len(args) == 0 || args[0] == "help" || args[0] == "-h" || args[0] == "--help" {
 		cli.printHelp(args)
 		return 0
 	}
-	err := cli.dispatch(ctx, args)
+	err = cli.dispatch(ctx, args)
 	if err == nil {
 		return 0
 	}
@@ -190,6 +197,58 @@ func (cli *app) run(ctx context.Context, args []string) int {
 	}
 	fmt.Fprintln(cli.stderr, "rdnsctl:", describeError(err))
 	return 1
+}
+
+// globalValueFlags are the global flags that take a value; json is the
+// only boolean one.
+var globalValueFlags = map[string]bool{"base-url": true, "token": true, "org": true, "config": true}
+
+// hoistGlobalFlags lets the global flags come before the command
+// (rdnsctl --json zones list): it moves the leading ones after the
+// command's own arguments (before a "--" terminator), where every command
+// parses them. Flags after the command are left alone. An unknown leading
+// flag, or a value flag without its value, is a usage error.
+func hoistGlobalFlags(args []string) ([]string, error) {
+	var leading []string
+	index := 0
+	for index < len(args) {
+		arg := args[index]
+		if arg == "-h" || arg == "--help" || arg == "-help" || !strings.HasPrefix(arg, "-") || arg == "-" || arg == "--" {
+			break
+		}
+		name, _, hasValue := strings.Cut(strings.TrimLeft(arg, "-"), "=")
+		switch {
+		case name == "json":
+			leading = append(leading, arg)
+		case globalValueFlags[name] && hasValue:
+			leading = append(leading, arg)
+		case globalValueFlags[name]:
+			if index+1 >= len(args) {
+				return nil, usagef("flag needs an argument: %s", arg)
+			}
+			leading = append(leading, arg, args[index+1])
+			index++
+		default:
+			return nil, usagef("unknown global flag %s (global flags: --base-url, --token, --org, --json, --config; see rdnsctl help)", arg)
+		}
+		index++
+	}
+	rest := args[index:]
+	if len(leading) == 0 {
+		return rest, nil
+	}
+	if len(rest) == 0 || rest[0] == "help" || rest[0] == "-h" || rest[0] == "--help" {
+		// Nothing to run: the help ignores the global flags.
+		return rest, nil
+	}
+	terminator := slices.Index(rest, "--")
+	if terminator < 0 {
+		terminator = len(rest)
+	}
+	hoisted := make([]string, 0, len(rest)+len(leading))
+	hoisted = append(hoisted, rest[:terminator]...)
+	hoisted = append(hoisted, leading...)
+	return append(hoisted, rest[terminator:]...), nil
 }
 
 func (cli *app) dispatch(ctx context.Context, args []string) error {
@@ -280,7 +339,7 @@ func (cli *app) printGroupHelp(name string, commandGroup group) {
 }
 
 const globalHelp = `
-global flags (any command):
+global flags (before or after the command):
   --base-url URL   API URL (env RDNS_BASE_URL, then the saved config)
   --token TOKEN    personal access or OAuth token (env RDNS_TOKEN)
   --org ORG_ID     organization (env RDNS_ORG); a token only accepts its own
@@ -393,6 +452,36 @@ func describeError(err error) string {
 	return text
 }
 
+// exitAborted is the exit code of a destructive command the user did not
+// confirm: a wrong answer or no answer at all (stdin closed). Nothing was
+// changed.
+const exitAborted = 2
+
+// errNoInput is what prompt returns when stdin is closed before a line.
+var errNoInput = errors.New("no input (stdin closed)")
+
+// confirmName asks the user to type expected to confirm a destructive
+// command and returns the answer. A different answer (after normalize, when
+// set) or no answer aborts with exitAborted; outcome says what did not
+// happen ("nothing was deleted").
+func (cli *app) confirmName(question, expected, outcome string, normalize func(string) string) (string, error) {
+	answer, err := cli.prompt(question)
+	if errors.Is(err, errNoInput) {
+		return "", exitError{code: exitAborted, err: fmt.Errorf("aborted: no confirmation was typed (stdin closed); %s. Pass --yes to skip the prompt", outcome)}
+	}
+	if err != nil {
+		return "", err
+	}
+	typed := answer
+	if normalize != nil {
+		typed = normalize(answer)
+	}
+	if typed != expected {
+		return "", exitError{code: exitAborted, err: fmt.Errorf("aborted: confirmation does not match %s; %s", expected, outcome)}
+	}
+	return answer, nil
+}
+
 // prompt prints a question and reads one line from stdin.
 func (cli *app) prompt(question string) (string, error) {
 	fmt.Fprint(cli.stderr, question)
@@ -400,7 +489,7 @@ func (cli *app) prompt(question string) (string, error) {
 	switch {
 	case err == nil, errors.Is(err, io.EOF) && line != "":
 	case errors.Is(err, io.EOF):
-		return "", errors.New("no input (stdin closed)")
+		return "", errNoInput
 	default:
 		return "", err
 	}

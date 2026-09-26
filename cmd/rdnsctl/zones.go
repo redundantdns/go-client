@@ -141,12 +141,9 @@ func runZonesDelete(ctx context.Context, cli *app, args []string) error {
 		return err
 	}
 	if !*yes {
-		answer, err := cli.prompt(fmt.Sprintf("Delete the canonical zone %s? Provider zones are kept. Type the zone name to confirm: ", zone.Name))
-		if err != nil {
+		question := fmt.Sprintf("Delete the canonical zone %s? Provider zones are kept. Type the zone name to confirm: ", zone.Name)
+		if _, err := cli.confirmName(question, zone.Name, "nothing was deleted", redundantdns.NormalizeZoneName); err != nil {
 			return err
-		}
-		if redundantdns.NormalizeZoneName(answer) != zone.Name {
-			return usagef("confirmation does not match %s; nothing was deleted", zone.Name)
 		}
 	}
 	if err := client.Zones.Delete(ctx, zone.ZoneID); err != nil {

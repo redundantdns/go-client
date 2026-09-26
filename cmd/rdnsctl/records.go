@@ -62,10 +62,11 @@ func runRecordsUpsert(ctx context.Context, cli *app, args []string) error {
 	if *name == "" || *recordType == "" || len(values) == 0 {
 		return usagef("usage: %s", recordsUpsertUsage)
 	}
-	zoneID, err := resolveZoneID(ctx, client, positionals[0])
+	zone, err := client.Zones.Resolve(ctx, positionals[0])
 	if err != nil {
 		return err
 	}
+	zoneID := zone.ZoneID
 	input := redundantdns.RecordUpsert{Name: *name, Type: strings.ToUpper(*recordType), TTL: *ttl, Values: values}
 	if *previousName != "" {
 		input.Previous = &redundantdns.RecordSetRef{Name: *previousName, Type: strings.ToUpper(cmp.Or(*previousType, *recordType))}
@@ -78,8 +79,8 @@ func runRecordsUpsert(ctx context.Context, cli *app, args []string) error {
 		return cli.printJSON(result)
 	}
 	set := result.RecordSet
-	fmt.Fprintf(cli.stdout, "Saved %s %s TTL %d: %s (serial %d). Providers are being reconciled.\n",
-		set.Name, set.Type, set.TTL, strings.Join(set.Values, " | "), result.Serial)
+	fmt.Fprintf(cli.stdout, "Saved %s %s TTL %d: %s (serial %d)%s\n",
+		set.Name, set.Type, set.TTL, strings.Join(set.Values, " | "), result.Serial, reconcileNote(zone))
 	return nil
 }
 
@@ -96,10 +97,11 @@ func runRecordsDelete(ctx context.Context, cli *app, args []string) error {
 	if *name == "" || *recordType == "" {
 		return usagef("usage: %s", usage)
 	}
-	zoneID, err := resolveZoneID(ctx, client, positionals[0])
+	zone, err := client.Zones.Resolve(ctx, positionals[0])
 	if err != nil {
 		return err
 	}
+	zoneID := zone.ZoneID
 	serial, err := client.Records.Delete(ctx, zoneID, *name, strings.ToUpper(*recordType))
 	if err != nil {
 		return err
@@ -107,8 +109,17 @@ func runRecordsDelete(ctx context.Context, cli *app, args []string) error {
 	if shared.jsonOutput {
 		return cli.printJSON(map[string]any{"ok": true, "serial": serial})
 	}
-	fmt.Fprintf(cli.stdout, "Deleted %s %s (serial %d). Providers are being reconciled.\n", *name, strings.ToUpper(*recordType), serial)
+	fmt.Fprintf(cli.stdout, "Deleted %s %s (serial %d)%s\n", *name, strings.ToUpper(*recordType), serial, reconcileNote(zone))
 	return nil
+}
+
+// reconcileNote ends the message of a record change: the providers are
+// reconciled only when the zone has at least one attachment.
+func reconcileNote(zone *redundantdns.Zone) string {
+	if len(zone.Attachments) == 0 {
+		return "; no providers attached yet."
+	}
+	return ". Providers are being reconciled."
 }
 
 // ------------------------------------------------------------ connections

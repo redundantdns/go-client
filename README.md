@@ -55,7 +55,9 @@ acceptance), `Legal` (the organization's Managed Provider Terms and Domain
 Registration Terms), `Domains` (registrar domains, contacts, registrant
 profile, export), `Licenses` (self-hosted licenses; issuing for platform
 admins), `Exports` (the organization export bundle), `Compliance`
-(compliance profiles), `Plans` (the public plan catalog), `OAuth` (client
+(compliance profiles), `Plans` (the public plan catalog), `Billing` (the
+organization's plan, status, limits with usage and managed pass-through),
+`OAuth` (client
 registration, authorization code with PKCE, refresh) and, for dashboard
 sessions only, `Auth` (e-mail code login) and `Tokens`. `Audit` also
 verifies the audit stream and downloads its evidence bundle.
@@ -174,6 +176,12 @@ evidence, err := client.Audit.Export(ctx, "", "")                  // a tar, pla
 // Public plan catalog: the trial and the billing intervals on sale.
 catalog, err := client.Plans.Catalog(ctx)
 yearly := catalog.IntervalOnSale(redundantdns.IntervalYearly) // catalog.Trial.Days: the trial
+
+// The organization's billing page (viewer + zones:read): plan, status,
+// limits with usage (Limit == redundantdns.Unlimited without a cap) and the
+// managed providers' pass-through of the period.
+billing, err := client.Billing.Get(ctx)
+zonesLeft := billing.Limits.Zones.Limit - billing.Limits.Zones.Used
 ```
 
 The export routes name the organization in their path: the client's
@@ -310,6 +318,9 @@ the status of every compliance report; `TamperAuditStream` makes the
 verification fail and `SetAuditStream(false)` answers `503
 auditStreamUnavailable`. The audit evidence bundle needs `SetPlan("business")`.
 `FakePlanCatalog()` is the catalog `GET /v1/plans` answers (no token).
+`GET /v1/billing` follows `SetPlan` (the trial on `free`) and the fake's
+zones, attachments and channels; `SetBillingUsage` sets the usage snapshot
+(managed pass-through lines).
 
 Fixtures for routes the dev lab does not serve yet (`legal_*`,
 `managed_terms_required`, `zone_create_child`) follow the documented API
@@ -375,6 +386,8 @@ $ rdnsctl audit export --out evidence.tar
 # export the whole organization, secrets included (owners)
 $ rdnsctl export request --passphrase-file ~/.rdns-export-passphrase --wait
 $ rdnsctl export download job-... --out org-bundle.tar
+# plan, billing status, limits with usage, managed pass-through
+$ rdnsctl billing
 # self-hosted licenses
 $ rdnsctl licenses list
 $ rdnsctl licenses download lic-... --out acme.license
@@ -389,12 +402,13 @@ Commands: `login`, `logout`, `whoami`, `zones list|get|create|delete|export|stat
 `admin domains list|assign|register|renew`,
 `licenses list|download`, `admin licenses list|issue|status|token`,
 `export request|status|download`, `compliance [run|last]`,
-`audit verify|export`, `version`.
+`audit verify|export`, `billing`, `version`.
 Run `rdnsctl help <command>` for the flags.
 
 - Zones are referenced by id (`zone-...`) or name.
-- Global flags: `--base-url`, `--token`, `--org`, `--json`, `--config`.
-  Environment: `RDNS_BASE_URL`, `RDNS_TOKEN`, `RDNS_ORG`. Flags win over
+- Global flags: `--base-url`, `--token`, `--org`, `--json`, `--config`,
+  before or after the command (`rdnsctl --json zones list` and
+  `rdnsctl zones list --json` are the same). Environment: `RDNS_BASE_URL`, `RDNS_TOKEN`, `RDNS_ORG`. Flags win over
   the environment, which wins over the saved config.
 - `login` mints a personal access token declared as the CLI
   (`client: cli`) and stores it in `$XDG_CONFIG_HOME/rdnsctl/config.json`
@@ -455,9 +469,18 @@ Run `rdnsctl help <command>` for the flags.
   the working directory.
 - Destructive commands (`zones delete`, `detach --delete-remote`,
   `domains delete`, `domains cancel`, `domains registrant set`, `domains contacts delete`)
-  ask you to type the name unless `--yes` is given.
-- Exit codes: `0` success, `1` API or runtime error, `2` wrong usage
-  (`compliance` has its own, above).
+  ask you to type the name unless `--yes` is given. A wrong answer or no
+  answer at all (stdin closed, as in a script without `--yes`) aborts with
+  exit code `2` and changes nothing.
+- `records upsert` and `records delete` say the providers are being
+  reconciled only when the zone has an attachment; otherwise the change is
+  saved in the canonical zone ("no providers attached yet").
+- `billing` shows the plan, the billing status (trial end, next invoice,
+  read-only reason), the limits with their usage and the managed
+  providers' pass-through of the period; `--json` prints `GET /v1/billing`
+  as is.
+- Exit codes: `0` success, `1` API or runtime error, `2` wrong usage or an
+  aborted confirmation (`compliance` has its own, above).
 
 ## Development
 

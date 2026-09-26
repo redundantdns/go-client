@@ -177,12 +177,9 @@ func runDomainsCancel(ctx context.Context, cli *app, args []string) error {
 	}
 	name := redundantdns.NormalizeZoneName(positionals[0])
 	if !*yes {
-		answer, err := cli.prompt(fmt.Sprintf("Cancel the unpaid registration of %s (its checkout is closed and the name released)? Type the domain name to confirm: ", name))
-		if err != nil {
+		question := fmt.Sprintf("Cancel the unpaid registration of %s (its checkout is closed and the name released)? Type the domain name to confirm: ", name)
+		if _, err := cli.confirmName(question, name, "nothing was cancelled", redundantdns.NormalizeZoneName); err != nil {
 			return err
-		}
-		if redundantdns.NormalizeZoneName(answer) != name {
-			return usagef("confirmation does not match %s; nothing was cancelled", name)
 		}
 	}
 	if err := client.Domains.CancelRegistration(ctx, name); err != nil {

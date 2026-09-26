@@ -1,7 +1,8 @@
 // Command rdnsctl is the RedundantDNS command line: sign in, manage zones,
 // record sets, provider connections, attachments, sync jobs, delegation
 // checks, alerts, registrar domains, self-hosted licenses, the organization
-// export, compliance reports and the audit stream through the /v1 API.
+// export, compliance reports, the audit stream and the billing page through
+// the /v1 API.
 //
 //	rdnsctl login --base-url https://app.redundantdns.com
 //	rdnsctl zones list

@@ -361,12 +361,10 @@ func runDomainsRegistrant(ctx context.Context, cli *app, args []string) error {
 	name := redundantdns.NormalizeZoneName(positionals[1])
 	confirm := name
 	if !*yes {
-		answer, err := cli.prompt(fmt.Sprintf("Change the registrant (owner) of %s to %s? Type the domain name to confirm: ", name, *contactID))
+		question := fmt.Sprintf("Change the registrant (owner) of %s to %s? Type the domain name to confirm: ", name, *contactID)
+		answer, err := cli.confirmName(question, name, "nothing was changed", redundantdns.NormalizeZoneName)
 		if err != nil {
 			return err
-		}
-		if redundantdns.NormalizeZoneName(answer) != name {
-			return usagef("confirmation does not match %s; nothing was changed", name)
 		}
 		confirm = answer
 	}
@@ -387,12 +385,9 @@ func runDomainsDelete(ctx context.Context, cli *app, args []string) error {
 	}
 	name := redundantdns.NormalizeZoneName(positionals[0])
 	if !*yes {
-		answer, err := cli.prompt(fmt.Sprintf("Forget %s (only a failed transfer can be forgotten; no registration is deleted)? Type the domain name to confirm: ", name))
-		if err != nil {
+		question := fmt.Sprintf("Forget %s (only a failed transfer can be forgotten; no registration is deleted)? Type the domain name to confirm: ", name)
+		if _, err := cli.confirmName(question, name, "nothing was deleted", redundantdns.NormalizeZoneName); err != nil {
 			return err
-		}
-		if redundantdns.NormalizeZoneName(answer) != name {
-			return usagef("confirmation does not match %s; nothing was deleted", name)
 		}
 	}
 	if err := client.Domains.Delete(ctx, name); err != nil {
@@ -490,12 +485,9 @@ func runDomainsContacts(ctx context.Context, cli *app, args []string) error {
 		return cli.printContactResult(shared, contact, "Updated contact")
 	}
 	if !*yes {
-		answer, err := cli.prompt(fmt.Sprintf("Delete contact %s? Type the contact id to confirm: ", rest[0]))
-		if err != nil {
+		question := fmt.Sprintf("Delete contact %s? Type the contact id to confirm: ", rest[0])
+		if _, err := cli.confirmName(question, rest[0], "nothing was deleted", nil); err != nil {
 			return err
-		}
-		if answer != rest[0] {
-			return usagef("confirmation does not match %s; nothing was deleted", rest[0])
 		}
 	}
 	if err := client.Domains.DeleteContact(ctx, rest[0]); err != nil {

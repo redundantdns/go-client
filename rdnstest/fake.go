@@ -26,7 +26,7 @@ const DefaultOrgID = "org-test"
 // Fake is an in-memory, stateful stand-in for the /v1 API: zones, record
 // sets, provider connections (the "fake" provider), attachments, sync jobs,
 // delegation checks, subdomain redundancy (parent delegation), the Managed
-// Provider Terms acceptance, alert rules, channels, events and the OAuth
+// Provider Terms acceptance, alert rules, channels, events, the billing page and the OAuth
 // endpoints (registration, an auto-approving authorize, token). It
 // validates the essentials (auth, org, not found, apex NS, confirmName,
 // managed terms) and answers with the same shapes as the real API; it is
@@ -65,6 +65,8 @@ type Fake struct {
 	// ops holds licenses, org exports, compliance reports and the audit
 	// stream.
 	ops fakeOps
+	// billingUsage is the usage snapshot of GET /v1/billing (nil: none).
+	billingUsage *redundantdns.BillingUsage
 }
 
 // NewFake starts a fake API server closed when the test ends.
@@ -194,6 +196,7 @@ func (fake *Fake) routes() http.Handler {
 	fake.mountOAuth(handle)
 	fake.mountDomains(handle)
 	fake.mountOps(handle)
+	fake.mountBilling(handle)
 	mux.HandleFunc("/", func(writer http.ResponseWriter, request *http.Request) {
 		writeError(writer, http.StatusNotFound, "notFound", "route not found")
 	})

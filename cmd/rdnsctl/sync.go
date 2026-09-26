@@ -65,12 +65,9 @@ func runDetach(ctx context.Context, cli *app, args []string) error {
 	if *deleteRemote {
 		options.ConfirmName = zone.Name
 		if !*yes {
-			answer, err := cli.prompt(fmt.Sprintf("This deletes the provider zone of %s. Type the zone name to confirm: ", zone.Name))
-			if err != nil {
+			question := fmt.Sprintf("This deletes the provider zone of %s. Type the zone name to confirm: ", zone.Name)
+			if _, err := cli.confirmName(question, zone.Name, "nothing was detached", redundantdns.NormalizeZoneName); err != nil {
 				return err
-			}
-			if redundantdns.NormalizeZoneName(answer) != zone.Name {
-				return usagef("confirmation does not match %s; nothing was detached", zone.Name)
 			}
 		}
 	}

@@ -74,6 +74,7 @@ type Client struct {
 	Exports     *ExportsService
 	Compliance  *ComplianceService
 	Plans       *PlansService
+	Billing     *BillingService
 }
 
 // Option configures a Client.
@@ -195,6 +196,7 @@ func (client *Client) bindServices() {
 	client.Exports = &ExportsService{client: client}
 	client.Compliance = &ComplianceService{client: client}
 	client.Plans = &PlansService{client: client}
+	client.Billing = &BillingService{client: client}
 }
 
 // BaseURL returns the deployment URL.
