@@ -82,6 +82,37 @@ if requirement, ok := redundantdns.ManagedTermsRequired(err); ok {
 }
 ```
 
+### Replacing credentials (key rotation)
+
+A key rotated or revoked at the provider puts every attachment of its
+connection in `error`. `Connections.Update` replaces the credentials of a
+BYO connection in place: the id and the attachments stay, and every
+attachment is reconciled at once (`JobIDs`). The credentials are required,
+with every field of the provider as on create, and write-only. The
+platform tests them first, also against the provider zone of every
+attachment; when the provider refuses them nothing is saved and the stored
+credentials keep working.
+
+```go
+label := "AWS production (rotated)"
+result, err := client.Connections.Update(ctx, "conn-...", redundantdns.ConnectionUpdate{
+	Credentials: map[string]string{"accessKeyId": newKeyID, "secretAccessKey": newSecret},
+	ScopeHints:  nil,    // nil keeps the stored scope hints; an empty map clears them
+	Label:       &label, // nil keeps the label
+})
+switch {
+case errors.Is(err, redundantdns.ErrProviderRejected): // 422: nothing saved
+case errors.Is(err, redundantdns.ErrConnectionManaged): // 400: a managed connection has no credentials
+case errors.Is(err, redundantdns.ErrConnectionImmutable): // 400: provider, mode, access level never change
+}
+```
+
+Other errors: `400 credentialsIncomplete` (details list the missing
+fields), `400 labelRequired`, `404 connectionNotFound`. `Deferred` is true
+for a `zone_editor` connection with no attachment (status `pending`, as on
+create). A `selfhost` connection's `nameservers` are read when a zone is
+attached: changing them does not move the NS plan of zones already attached.
+
 ### Domains (registrar)
 
 Domains held at the platform's registrar account, with the organization as
@@ -241,13 +272,14 @@ if errors.As(err, &apiError) { fmt.Println(apiError.Code, apiError.Details) }
 Sentinels: `ErrBadRequest`, `ErrUnauthorized`, `ErrForbidden`,
 `ErrNotFound`, `ErrConflict`, `ErrUnprocessable`, `ErrGone`, `ErrLicenseDegraded`,
 `ErrLegalAcceptanceRequired`, `ErrManagedTermsRequired`,
-`ErrDomainTermsRequired`, `ErrPaymentRequired`, `ErrRateLimited`,
+`ErrDomainTermsRequired`, `ErrProviderRejected`, `ErrConnectionManaged`,
+`ErrConnectionImmutable`, `ErrPaymentRequired`, `ErrRateLimited`,
 `ErrServer`.
 
 ### Retries
 
 `429` answers are always retried; `5xx` answers and network errors are
-retried for idempotent methods only (GET, PUT, DELETE), because a POST that
+retried for idempotent methods only (GET, PUT, DELETE), because a POST or PATCH that
 reached the server may have taken effect. The default policy retries 4
 times with exponential backoff (0.5 s, 1 s, 2 s, 4 s, with jitter), honors
 `Retry-After` and caps a delay at 30 s. Change it with
@@ -322,6 +354,12 @@ auditStreamUnavailable`. The audit evidence bundle needs `SetPlan("business")`.
 zones, attachments and channels; `SetBillingUsage` sets the usage snapshot
 (managed pass-through lines).
 
+Credential rotation (`PATCH /v1/connections/{id}`) validates like the API
+(`connectionManaged`, `connectionImmutable`, `credentialsIncomplete`,
+`labelRequired`); any credential value `invalid` answers `422
+providerRejected` and saves nothing. `ConnectionCredentials(id)` returns
+what the fake stored, to check a rotation.
+
 Fixtures for routes the dev lab does not serve yet (`legal_*`,
 `managed_terms_required`, `zone_create_child`) follow the documented API
 contract and are overwritten by the next recording run; `synthetic_*`
@@ -351,6 +389,8 @@ $ rdnsctl sync reconcile example.com --wait
 $ rdnsctl delegation check example.com
 $ rdnsctl alerts list --state firing
 
+# key rotated at the provider: replace the credentials in place (tested first)
+$ rdnsctl connections update conn-... --cred accessKeyId=AKIA... --cred secretAccessKey=...
 # managed providers: read the terms, then accept them explicitly
 $ rdnsctl legal managed status
 $ rdnsctl connections create --provider route53 --mode managed --accept-managed-terms 2026-09-24
@@ -394,7 +434,7 @@ $ rdnsctl licenses download lic-... --out acme.license
 ```
 
 Commands: `login`, `logout`, `whoami`, `zones list|get|create|delete|export|status`,
-`records list|upsert|delete`, `connections list|create|test|delete`,
+`records list|upsert|delete`, `connections list|create|update|test|delete`,
 `providers list`, `attach`, `detach`, `sync reconcile|verify|adopt|status`,
 `delegation check`, `alerts list|resolve|ack|rules|channels`,
 `legal managed status|accept`, `terraform login`,
@@ -415,6 +455,12 @@ Run `rdnsctl help <command>` for the flags.
   (`~/.config/rdnsctl/config.json` by default) with mode `0600`.
   `login --token rdns_...` saves an existing token instead. `logout` removes
   the file; revoke the token in the dashboard (tokens cannot revoke tokens).
+- `connections update <id>` replaces a BYO connection's credentials in
+  place (`--cred`/`--cred-file`, every field of the provider; required).
+  `--label` and `--scope` (or `--clear-scopes`) change the label and the
+  scope hints in the same call; omitted, they are kept. A refusal by the
+  provider saves nothing. Credentials are never printed, and a malformed
+  `--cred` is reported without its value.
 - `connections create --mode managed` refuses to run without
   `--accept-managed-terms <version>` and prints where to read the terms;
   `legal managed accept <version>` records the acceptance on its own

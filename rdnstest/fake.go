@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"slices"
@@ -24,7 +25,7 @@ const DefaultToken = "rdns_test_token" //nolint:gosec // a test-only placeholder
 const DefaultOrgID = "org-test"
 
 // Fake is an in-memory, stateful stand-in for the /v1 API: zones, record
-// sets, provider connections (the "fake" provider), attachments, sync jobs,
+// sets, provider connections (the "fake" provider, credential rotation), attachments, sync jobs,
 // delegation checks, subdomain redundancy (parent delegation), the Managed
 // Provider Terms acceptance, alert rules, channels, events, the billing page and the OAuth
 // endpoints (registration, an auto-approving authorize, token). It
@@ -596,6 +597,7 @@ func (fake *Fake) mountConnections(handle func(string, handler)) {
 		}
 		writeJSON(writer, http.StatusOK, redundantdns.ConnectionTestResult{Connection: *connection, Result: redundantdns.TestResult{OK: true}})
 	})
+	handle("PATCH /v1/connections/{connectionId}", fake.updateConnection)
 	handle("DELETE /v1/connections/{connectionId}", func(writer http.ResponseWriter, request *http.Request) {
 		connectionID := request.PathValue("connectionId")
 		if _, ok := fake.connections[connectionID]; !ok {
@@ -614,6 +616,99 @@ func (fake *Fake) mountConnections(handle func(string, handler)) {
 		delete(fake.credentials, connectionID)
 		writeJSON(writer, http.StatusOK, map[string]bool{"ok": true})
 	})
+}
+
+// updateConnection replaces a BYO connection's credentials like the API:
+// managed connections and changes of provider, mode or access level are
+// refused (400), the credentials are "tested" first (any value "invalid"
+// answers 422 providerRejected and nothing is saved), then every
+// attachment of the connection gets a reconcile job. Existing attachments
+// keep their nameservers, as a selfhost connection does on the platform.
+func (fake *Fake) updateConnection(writer http.ResponseWriter, request *http.Request) {
+	var input struct {
+		Credentials map[string]string `json:"credentials"`
+		ScopeHints  map[string]string `json:"scopeHints"`
+		Label       *string           `json:"label"`
+		Provider    string            `json:"provider"`
+		Mode        string            `json:"mode"`
+		AccessLevel string            `json:"accessLevel"`
+	}
+	if !decode(writer, request, &input) {
+		return
+	}
+	connectionID := request.PathValue("connectionId")
+	connection, ok := fake.connections[connectionID]
+	if !ok {
+		writeError(writer, http.StatusNotFound, redundantdns.CodeConnectionNotFound, "connection not found")
+		return
+	}
+	if connection.Mode == redundantdns.ModeManaged {
+		writeError(writer, http.StatusBadRequest, redundantdns.CodeConnectionManaged,
+			"a managed connection uses the platform account and has no credentials to replace")
+		return
+	}
+	if (input.Provider != "" && input.Provider != connection.Provider) || (input.Mode != "" && input.Mode != connection.Mode) ||
+		(input.AccessLevel != "" && input.AccessLevel != connection.AccessLevel) {
+		writeError(writer, http.StatusBadRequest, redundantdns.CodeConnectionImmutable,
+			"provider, mode and access level cannot change; create a new connection")
+		return
+	}
+	label := connection.Label
+	if input.Label != nil {
+		label = strings.TrimSpace(*input.Label)
+		if label == "" || len(label) > 120 {
+			writeError(writer, http.StatusBadRequest, redundantdns.CodeLabelRequired, "give the connection a name")
+			return
+		}
+	}
+	token := input.Credentials["token"]
+	if token == "" {
+		writeError(writer, http.StatusBadRequest, redundantdns.CodeCredentialsIncomplete, "missing credential fields: token")
+		return
+	}
+	for _, value := range input.Credentials {
+		if value == "invalid" {
+			writeError(writer, http.StatusUnprocessableEntity, redundantdns.CodeProviderRejected, "fake: the credentials were refused")
+			return
+		}
+	}
+	jobIDs := []string{}
+	for _, zoneID := range slices.Sorted(maps.Keys(fake.zones)) {
+		for _, attachment := range fake.zones[zoneID].Attachments {
+			if attachment.ConnectionID == connectionID {
+				jobIDs = append(jobIDs, fake.nextID("job"))
+			}
+		}
+	}
+	// Like the API: a zone_editor connection with no attachment has nothing
+	// to test the credentials against yet.
+	deferred := connection.AccessLevel == redundantdns.AccessLevelZoneEditor && len(jobIDs) == 0
+	now := time.Now().UTC()
+	hint := token
+	if len(hint) > 4 {
+		hint = hint[len(hint)-4:]
+	}
+	connection.Label = label
+	connection.CredentialsHint = hint
+	connection.LastCheckedAt = &now
+	connection.LastError = ""
+	connection.Status = "ok"
+	if deferred {
+		connection.Status = "pending"
+	}
+	if input.ScopeHints != nil {
+		connection.ScopeHints = maps.Clone(input.ScopeHints)
+	}
+	fake.credentials[connectionID] = maps.Clone(input.Credentials)
+	writeJSON(writer, http.StatusOK, redundantdns.ConnectionUpdateResult{Connection: *connection, Deferred: deferred, JobIDs: jobIDs})
+}
+
+// ConnectionCredentials returns the credentials stored for a connection
+// (the API never returns them; tests use this to check a rotation).
+func (fake *Fake) ConnectionCredentials(connectionID string) map[string]string {
+	fake.mutex.Lock()
+	defer fake.mutex.Unlock()
+	return maps.Clone(fake.credentials[connectionID])
 }
 
 func (fake *Fake) mountAlerts(handle func(string, handler)) {

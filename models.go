@@ -220,6 +220,32 @@ type ConnectionCreateResult struct {
 	Deferred   bool       `json:"deferred"`
 }
 
+// ConnectionUpdate is the body of Connections.Update: new credentials for a
+// BYO connection (a key rotated or revoked at the provider). Credentials are
+// required, with every field of the provider as on create, and write-only.
+// The platform tests them first (also against the provider zone of every
+// attachment); when the provider refuses them nothing is saved and the API
+// answers 422 providerRejected (ErrProviderRejected).
+type ConnectionUpdate struct {
+	Credentials map[string]string `json:"credentials"`
+	// ScopeHints replaces the stored scope hints; nil keeps them, an empty
+	// (non-nil) map clears them.
+	ScopeHints map[string]string `json:"scopeHints"`
+	// Label renames the connection; nil keeps it.
+	Label *string `json:"label,omitempty"`
+}
+
+// ConnectionUpdateResult is the answer of Connections.Update. Deferred
+// means the credentials test did not run yet (a zone_editor connection with
+// no attachment; the status is pending). JobIDs are the reconcile jobs
+// started for the connection's attachments, so an error state clears
+// without a manual reconcile.
+type ConnectionUpdateResult struct {
+	Connection Connection `json:"connection"`
+	Deferred   bool       `json:"deferred"`
+	JobIDs     []string   `json:"jobIds"`
+}
+
 // TestResult is the outcome of a connection test.
 type TestResult struct {
 	OK       bool   `json:"ok"`

@@ -181,22 +181,8 @@ func runConnectionsCreate(ctx context.Context, cli *app, args []string) error {
 		// The API requires an access level for BYO credentials.
 		input.AccessLevel = redundantdns.AccessLevelZoneAdmin
 	}
-	if input.Credentials, err = parsePairs(credentials, "--cred"); err != nil {
+	if input.Credentials, err = readCredentials(credentials, credentialFiles); err != nil {
 		return err
-	}
-	files, err := parsePairs(credentialFiles, "--cred-file")
-	if err != nil {
-		return err
-	}
-	for key, path := range files {
-		content, err := os.ReadFile(path) //nolint:gosec // the user names the file
-		if err != nil {
-			return fmt.Errorf("--cred-file %s: %w", key, err)
-		}
-		if input.Credentials == nil {
-			input.Credentials = map[string]string{}
-		}
-		input.Credentials[key] = string(content)
 	}
 	if input.ScopeHints, err = parsePairs(scopes, "--scope"); err != nil {
 		return err
@@ -212,6 +198,68 @@ func runConnectionsCreate(ctx context.Context, cli *app, args []string) error {
 	fmt.Fprintf(cli.stdout, "Created connection %s (%s, %s, status %s).\n", connection.ConnectionID, connection.Provider, connection.AccessLevel, connection.Status)
 	if result.Deferred {
 		fmt.Fprintln(cli.stdout, "The credentials test is deferred: check it later with rdnsctl connections test.")
+	}
+	return nil
+}
+
+const connectionsUpdateUsage = "rdnsctl connections update <connectionId> --cred KEY=VALUE... [--cred-file KEY=PATH...] [--scope KEY=VALUE... | --clear-scopes] [--label L]"
+
+// runConnectionsUpdate replaces a BYO connection's credentials in place: the
+// platform tests them first (a refusal saves nothing), keeps the id and the
+// attachments, and reconciles every attachment. Credentials are never
+// printed.
+func runConnectionsUpdate(ctx context.Context, cli *app, args []string) error {
+	shared := &globals{}
+	flags := newFlagSet("connections update", shared)
+	label := flags.String("label", "", "new label (kept when not given)")
+	clearScopes := flags.Bool("clear-scopes", false, "remove every scope hint")
+	var credentials, credentialFiles, scopes multiFlag
+	flags.Var(&credentials, "cred", "credential field KEY=VALUE (repeat; every field of the provider)")
+	flags.Var(&credentialFiles, "cred-file", "credential field read from a file, KEY=PATH (for private keys)")
+	flags.Var(&scopes, "scope", "scope hint KEY=VALUE, replaces the stored ones (kept when not given)")
+	client, positionals, err := cli.begin(flags, shared, args, 1, connectionsUpdateUsage)
+	if err != nil {
+		return err
+	}
+	input := redundantdns.ConnectionUpdate{}
+	if input.Credentials, err = readCredentials(credentials, credentialFiles); err != nil {
+		return err
+	}
+	if len(input.Credentials) == 0 {
+		return usagef("usage: %s (the credentials are required: every field of the provider)", connectionsUpdateUsage)
+	}
+	if input.ScopeHints, err = parsePairs(scopes, "--scope"); err != nil {
+		return err
+	}
+	if *clearScopes {
+		if input.ScopeHints != nil {
+			return usagef("--clear-scopes and --scope cannot be combined")
+		}
+		input.ScopeHints = map[string]string{}
+	}
+	if flagWasSet(flags, "label") {
+		input.Label = label
+	}
+	result, err := client.Connections.Update(ctx, positionals[0], input)
+	if err != nil {
+		return err
+	}
+	if shared.jsonOutput {
+		return cli.printJSON(result)
+	}
+	connection := result.Connection
+	hint := ""
+	if connection.CredentialsHint != "" {
+		hint = ", credentials ..." + connection.CredentialsHint
+	}
+	fmt.Fprintf(cli.stdout, "Replaced the credentials of connection %s (%s, status %s%s).\n", connection.ConnectionID, connection.Provider, connection.Status, hint)
+	switch {
+	case result.Deferred:
+		fmt.Fprintln(cli.stdout, "The credentials test is deferred until a zone is attached: check it later with rdnsctl connections test.")
+	case len(result.JobIDs) == 0:
+		fmt.Fprintln(cli.stdout, "No zone uses it yet.")
+	default:
+		fmt.Fprintf(cli.stdout, "Reconciling its attachments: %s.\n", strings.Join(result.JobIDs, ", "))
 	}
 	return nil
 }
@@ -274,6 +322,38 @@ func runProvidersList(ctx context.Context, cli *app, args []string) error {
 }
 
 // parsePairs turns KEY=VALUE flags into a map.
+// readCredentials merges --cred KEY=VALUE and --cred-file KEY=PATH into
+// the credentials map (nil when neither is given). A malformed --cred is
+// reported without its value, which may be a secret.
+func readCredentials(credentials, credentialFiles multiFlag) (map[string]string, error) {
+	var out map[string]string
+	for _, pair := range credentials {
+		key, value, ok := strings.Cut(pair, "=")
+		if !ok || strings.TrimSpace(key) == "" {
+			return nil, usagef("--cred expects KEY=VALUE (the value is not shown)")
+		}
+		if out == nil {
+			out = map[string]string{}
+		}
+		out[strings.TrimSpace(key)] = value
+	}
+	files, err := parsePairs(credentialFiles, "--cred-file")
+	if err != nil {
+		return nil, err
+	}
+	for key, path := range files {
+		content, err := os.ReadFile(path) //nolint:gosec // the user names the file
+		if err != nil {
+			return nil, fmt.Errorf("--cred-file %s: %w", key, err)
+		}
+		if out == nil {
+			out = map[string]string{}
+		}
+		out[key] = string(content)
+	}
+	return out, nil
+}
+
 func parsePairs(pairs []string, flagName string) (map[string]string, error) {
 	if len(pairs) == 0 {
 		return nil, nil

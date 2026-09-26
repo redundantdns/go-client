@@ -47,6 +47,20 @@ func (service *ConnectionsService) Create(ctx context.Context, input ConnectionC
 	return &result, nil
 }
 
+// Update replaces a BYO connection's credentials in place (admins): the
+// connection keeps its id and attachments. Provider, mode and access level
+// never change (create a new connection for another grant). Errors:
+// ErrProviderRejected (422, nothing saved), ErrConnectionManaged (a managed
+// connection has no credentials), ErrConnectionImmutable,
+// CodeCredentialsIncomplete, CodeLabelRequired and CodeConnectionNotFound.
+func (service *ConnectionsService) Update(ctx context.Context, connectionID string, input ConnectionUpdate) (*ConnectionUpdateResult, error) {
+	var result ConnectionUpdateResult
+	if err := service.client.do(ctx, request{method: http.MethodPatch, path: pathf("/v1/connections/%s", connectionID), body: input}, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
 // Test re-tests a stored connection (admins).
 func (service *ConnectionsService) Test(ctx context.Context, connectionID string) (*ConnectionTestResult, error) {
 	var result ConnectionTestResult

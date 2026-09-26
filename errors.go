@@ -66,6 +66,12 @@ func (apiError *APIError) Is(target error) bool {
 		return apiError.Code == CodeManagedTermsRequired
 	case ErrDomainTermsRequired:
 		return apiError.Code == CodeDomainTermsRequired
+	case ErrProviderRejected:
+		return apiError.Code == CodeProviderRejected
+	case ErrConnectionManaged:
+		return apiError.Code == CodeConnectionManaged
+	case ErrConnectionImmutable:
+		return apiError.Code == CodeConnectionImmutable
 	case ErrPaymentRequired:
 		return apiError.StatusCode == http.StatusPaymentRequired
 	case ErrRateLimited:
@@ -103,6 +109,16 @@ var (
 	// domain_terms_required). DomainTermsRequired returns the version to
 	// accept.
 	ErrDomainTermsRequired = errors.New("domain registration terms acceptance required")
+	// ErrProviderRejected: 422 providerRejected, the provider refused the
+	// credentials (create, or Connections.Update: nothing was saved and the
+	// stored credentials keep working). The message is the provider's.
+	ErrProviderRejected = errors.New("provider rejected the credentials")
+	// ErrConnectionManaged: 400 connectionManaged, a managed connection
+	// uses the platform account and has no credentials to replace.
+	ErrConnectionManaged = errors.New("managed connection has no credentials")
+	// ErrConnectionImmutable: 400 connectionImmutable, the provider, mode
+	// and access level of a connection never change; create a new one.
+	ErrConnectionImmutable = errors.New("connection provider, mode and access level cannot change")
 	// ErrPaymentRequired: 402, the plan does not allow the action
 	// (plan_limit_reached) or the organization is read-only (org_read_only).
 	ErrPaymentRequired = errors.New("payment required")
@@ -125,7 +141,9 @@ const (
 	CodeCodeExpired               = "codeExpired"
 	CodeConfirmNameMismatch       = "confirmNameMismatch"
 	CodeConflict                  = "conflict"
+	CodeConnectionImmutable       = "connectionImmutable"
 	CodeConnectionInUse           = "connectionInUse"
+	CodeConnectionManaged         = "connectionManaged"
 	CodeConnectionNotFound        = "connectionNotFound"
 	CodeContactInUse              = "contactInUse"
 	CodeContactNotFound           = "contactNotFound"

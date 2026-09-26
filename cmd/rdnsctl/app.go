@@ -8,6 +8,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net/http"
 	"slices"
 	"sort"
 	"strings"
@@ -121,6 +122,7 @@ func coreGroups() map[string]group {
 		"connections": {summary: "Provider connections", subcommands: map[string]command{
 			"list":   {summary: "List provider connections", usage: "rdnsctl connections list", run: runConnectionsList},
 			"create": {summary: "Test and save a provider connection", usage: "rdnsctl connections create --provider ID [--label L] [--access-level zone_admin|zone_editor] [--mode byo|managed] [--cred KEY=VALUE...] [--cred-file KEY=PATH...] [--scope KEY=VALUE...]", run: runConnectionsCreate},
+			"update": {summary: "Replace a BYO connection's credentials in place (key rotation)", usage: connectionsUpdateUsage, run: runConnectionsUpdate},
 			"test":   {summary: "Re-test a stored connection", usage: "rdnsctl connections test <connectionId>", run: runConnectionsTest},
 			"delete": {summary: "Delete a connection that no zone uses", usage: "rdnsctl connections delete <connectionId>", run: runConnectionsDelete},
 		}},
@@ -445,6 +447,10 @@ func describeError(err error) string {
 		text += " (this deployment has no payment gateway: domains cannot be paid for here)"
 	case redundantdns.HasCode(err, redundantdns.CodeDomainUnavailable):
 		text += " (see rdnsctl domains check)"
+	case errors.Is(err, redundantdns.ErrProviderRejected) && apiError.Method == http.MethodPatch:
+		text += " (nothing was saved: the stored credentials keep working)"
+	case errors.Is(err, redundantdns.ErrConnectionImmutable), errors.Is(err, redundantdns.ErrConnectionManaged):
+		text += " (create a new connection with rdnsctl connections create)"
 	}
 	if len(apiError.Details) > 0 {
 		text += "\n" + string(apiError.Details)
