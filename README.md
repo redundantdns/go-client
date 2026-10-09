@@ -215,7 +215,11 @@ billing, err := client.Billing.Get(ctx)
 zonesLeft := billing.Limits.Zones.Limit - billing.Limits.Zones.Used
 ```
 
-The export routes name the organization in their path: the client's
+The export needs an owner's personal access token minted with the
+PAT-only `org:export` scope (plus `connections:write`); a token without it,
+and every OAuth token, gets `403 exportScopeRequired` (RedundantDNS
+security review 2026-10-09). The export routes name the organization in
+their path: the client's
 `WithOrg`, else the token's only organization. `Exports.Download` asks for
 a fresh one-time link (every `Status` call replaces the previous one),
 always follows it on the client's base URL and never retries it; it answers

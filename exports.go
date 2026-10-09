@@ -12,8 +12,10 @@ import (
 
 // ExportsService builds and downloads the organization export bundle
 // (rdns.orgbundle.v1), the exit guarantee: the whole organization, secrets
-// included, sealed under a passphrase (API docs "Org export"). Owners only
-// (connections:write for tokens); never refused by the plan, the billing
+// included, sealed under a passphrase (API docs "Org export"). Owners only;
+// a token must be a personal access token minted with the org:export
+// scope (and connections:write): OAuth tokens never get it and are
+// refused (403 exportScopeRequired). Never refused by the plan, the billing
 // state or a degraded license. Restore a bundle with `rdns import-org`.
 //
 // The routes name the organization in the path: the client's WithOrg, else

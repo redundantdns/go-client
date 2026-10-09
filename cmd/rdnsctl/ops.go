@@ -47,7 +47,7 @@ func opsGroups() map[string]group {
 			"list":     {summary: "List the licenses of the organization", usage: "rdnsctl licenses list", run: runLicensesList},
 			"download": {summary: "Save a license file (owners; 10 per hour)", usage: licensesDownloadUsage, run: runLicensesDownload},
 		}},
-		"export": {summary: "Export the whole organization, secrets included (owners)", subcommands: map[string]command{
+		"export": {summary: "Export the whole organization, secrets included (owners; a token with org:export)", subcommands: map[string]command{
 			"request":  {summary: "Queue the export bundle, sealed with a passphrase", usage: exportRequestUsage, run: runExportRequest},
 			"status":   {summary: "Show an export", usage: exportStatusUsage, run: runExportStatus},
 			"download": {summary: "Download a ready export bundle and check its SHA-256", usage: exportDownloadUsage, run: runExportDownload},
