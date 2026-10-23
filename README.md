@@ -239,6 +239,49 @@ nil lets the server decide. `Zone.ParentDelegation` shows the parent. A
 delegation check on a domain registered at Cloudflare Registrar has
 `Hint == DelegationHintCloudflareRegistrar` and `Registrar` from RDAP.
 
+### ACME DNS-01 challenges (cert-manager)
+
+`client.ACME` presents and cleans up `_acme-challenge` TXT values and
+tells when every provider of the zone serves them, which is what an ACME
+client needs before asking the CA to validate. It backs the
+[cert-manager webhook](https://github.com/redundantdns/cert-manager-webhook).
+
+```go
+challenge, err := client.ACME.Present(ctx, zoneID, redundantdns.ACMEChallengeInput{
+	Name:  "_acme-challenge.www.example.com.", // or relative: "_acme-challenge.www"
+	Value: keyAuthorizationDigest,             // base64url, 43 characters
+})
+// Poll every 2 s until every provider serves the value (or it failed).
+deadline, cancel := context.WithTimeout(ctx, 2*time.Minute)
+defer cancel()
+status, err := client.ACME.WaitPropagated(deadline, zoneID, challenge.ChallengeID, redundantdns.ACMEWaitOptions{})
+// errors.Is(err, redundantdns.ErrACMEChallengeFailed): status.Reason says why.
+// After validation:
+err = client.ACME.CleanUpValue(ctx, zoneID, "_acme-challenge.www.example.com.", keyAuthorizationDigest)
+```
+
+- `Present` is idempotent (the same name and value return the same
+  challenge with `Existing` true) and adds the value next to the others at
+  the name: apex and wildcard certificates present two values at once.
+- `Status` reports per attachment whether the serial was applied and every
+  nameserver answers the value (`ACMEProviderStatus`); standby attachments
+  must apply it, verify-mode and NS-pending ones are skipped.
+- `CleanUp` (by id) and `CleanUpValue` (by name and value) are idempotent:
+  a challenge already gone is not an error.
+- `Zones` lists the zones the token may address, to map a name to a zone.
+
+A token for this is scoped to `ScopeACMEChallenge` (`acme:challenge`) and
+restricted to zones with `TokenCreate.ZoneIDs`; `Token.Restrictions`
+shows the list. Such a token reaches nothing but these routes. Errors:
+`CodeACMENameInvalid` and `CodeACMEValueInvalid` (400),
+`CodeZoneNotAllowed` (403, outside the token's zones), `CodeZoneMirrored`,
+`CodeRecordSetManaged` and `CodeCnameConflict` (409; a CNAME at the name
+means the challenge is delegated: present it in the target zone, cert-manager
+`cnameStrategy: Follow`), `CodeTooManyChallenges` (429, live challenges per
+zone). In tests, `rdnstest.Fake` serves the routes;
+`SetACMEPropagation`, `FailACMEChallenges` and `RestrictACMEZones` shape
+the answers and `ACMEValues(fqdn)` returns what a DNS server should answer.
+
 ### Token clients and OAuth software ids
 
 The plan gates the Terraform provider, the CLI and MCP by what a token
@@ -278,7 +321,7 @@ Sentinels: `ErrBadRequest`, `ErrUnauthorized`, `ErrForbidden`,
 `ErrLegalAcceptanceRequired`, `ErrManagedTermsRequired`,
 `ErrDomainTermsRequired`, `ErrProviderRejected`, `ErrConnectionManaged`,
 `ErrConnectionImmutable`, `ErrPaymentRequired`, `ErrRateLimited`,
-`ErrServer`.
+`ErrServer`; `ErrACMEChallengeFailed` comes from `ACME.WaitPropagated`.
 
 ### Retries
 
@@ -321,8 +364,8 @@ Package `rdnstest` has two test servers:
   `scripts/record-fixtures.sh`).
 - `rdnstest.NewFake(t)` is a small stateful fake of `/v1` (zones, records,
   the `fake` provider, attachments, jobs, alerts, managed terms, parent
-  delegation, domains, licenses, org exports, compliance, the audit stream
-  and the plan catalog) and of the OAuth endpoints (it approves every
+  delegation, domains, licenses, org exports, compliance, the audit stream,
+  ACME DNS-01 challenges and the plan catalog) and of the OAuth endpoints (it approves every
   authorization at once), with failure injection (`FailNext(429, 503)`).
 
 The fake's domains module simulates the registrar: a transfer stays

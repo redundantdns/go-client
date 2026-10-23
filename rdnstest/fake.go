@@ -27,7 +27,8 @@ const DefaultOrgID = "org-test"
 // Fake is an in-memory, stateful stand-in for the /v1 API: zones, record
 // sets, provider connections (the "fake" provider, credential rotation), attachments, sync jobs,
 // delegation checks, subdomain redundancy (parent delegation), the Managed
-// Provider Terms acceptance, alert rules, channels, events, the billing page and the OAuth
+// Provider Terms acceptance, alert rules, channels, events, the billing page, ACME DNS-01
+// challenges and the OAuth
 // endpoints (registration, an auto-approving authorize, token). It
 // validates the essentials (auth, org, not found, apex NS, confirmName,
 // managed terms) and answers with the same shapes as the real API; it is
@@ -68,6 +69,8 @@ type Fake struct {
 	ops fakeOps
 	// billingUsage is the usage snapshot of GET /v1/billing (nil: none).
 	billingUsage *redundantdns.BillingUsage
+	// acme holds the ACME DNS-01 challenges and the propagation settings.
+	acme fakeACME
 }
 
 // NewFake starts a fake API server closed when the test ends.
@@ -86,6 +89,7 @@ func NewFake(tb testing.TB) *Fake {
 		plan:              "free",
 		domainState:       newFakeDomains(),
 		ops:               newFakeOps(),
+		acme:              newFakeACME(),
 	}
 	_, rules := MustFixture(tb, "alert_rules")
 	if err := json.Unmarshal(rules, &fake.rules); err != nil {
@@ -198,6 +202,7 @@ func (fake *Fake) routes() http.Handler {
 	fake.mountDomains(handle)
 	fake.mountOps(handle)
 	fake.mountBilling(handle)
+	fake.mountACME(handle)
 	mux.HandleFunc("/", func(writer http.ResponseWriter, request *http.Request) {
 		writeError(writer, http.StatusNotFound, "notFound", "route not found")
 	})
