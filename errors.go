@@ -240,6 +240,14 @@ const (
 	CodePassphraseInvalid        = "passphraseInvalid"
 	CodeTooManyRequests          = "too_many_requests"
 	CodeUnknownProfile           = "unknownProfile"
+
+	// ACME DNS-01 challenges (ACMEService).
+	CodeACMEChallengeNotFound = "acmeChallengeNotFound"
+	CodeACMENameInvalid       = "acmeNameInvalid"
+	CodeACMEValueInvalid      = "acmeValueInvalid"
+	CodeTooManyChallenges     = "tooManyChallenges"
+	CodeZoneMirrored          = "zoneMirrored"
+	CodeZoneNotAllowed        = "zoneNotAllowed"
 )
 
 // HasCode reports whether err is an *APIError with one of the codes.

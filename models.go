@@ -13,9 +13,14 @@ const (
 	ScopeConnectionsWrite = "connections:write"
 	ScopeDomainsRead      = "domains:read"
 	ScopeDomainsWrite     = "domains:write"
+	// ScopeACMEChallenge reaches only the ACME DNS-01 routes (ACMEService),
+	// for the zones listed in TokenCreate.ZoneIDs (required with it). A
+	// personal access token scope only, never granted by OAuth; not in
+	// AllScopes because it cannot be combined into a general-purpose token.
+	ScopeACMEChallenge = "acme:challenge"
 )
 
-// AllScopes lists every token scope.
+// AllScopes lists every general-purpose token scope.
 var AllScopes = []string{
 	ScopeZonesRead, ScopeZonesWrite, ScopeConnectionsRead, ScopeConnectionsWrite, ScopeDomainsRead, ScopeDomainsWrite,
 }
@@ -550,16 +555,24 @@ type LegalAcceptance struct {
 // Token is a personal access token record (the secret is returned only by
 // Tokens.Create).
 type Token struct {
-	TokenID     string     `json:"tokenId"`
-	UserID      string     `json:"userId"`
-	Name        string     `json:"name"`
-	Prefix      string     `json:"prefix"`
-	Scopes      []string   `json:"scopes"`
-	IPAllowlist []string   `json:"ipAllowlist"`
-	Client      string     `json:"client,omitempty"`
-	CreatedAt   time.Time  `json:"createdAt"`
-	ExpiresAt   *time.Time `json:"expiresAt,omitempty"`
-	RevokedAt   *time.Time `json:"revokedAt,omitempty"`
+	TokenID     string   `json:"tokenId"`
+	UserID      string   `json:"userId"`
+	Name        string   `json:"name"`
+	Prefix      string   `json:"prefix"`
+	Scopes      []string `json:"scopes"`
+	IPAllowlist []string `json:"ipAllowlist"`
+	Client      string   `json:"client,omitempty"`
+	// Restrictions narrows what the token may address (nil: the whole
+	// organization, within its scopes).
+	Restrictions *TokenRestrictions `json:"restrictions,omitempty"`
+	CreatedAt    time.Time          `json:"createdAt"`
+	ExpiresAt    *time.Time         `json:"expiresAt,omitempty"`
+	RevokedAt    *time.Time         `json:"revokedAt,omitempty"`
+}
+
+// TokenRestrictions narrows a token to some zones (acme:challenge tokens).
+type TokenRestrictions struct {
+	ZoneIDs []string `json:"zoneIds"`
 }
 
 // Token clients: what a personal access token is for. The plan gates the
@@ -580,6 +593,10 @@ type TokenCreate struct {
 	// Client declares what the token is for (TokenClient*; empty = the
 	// server default, api).
 	Client string `json:"client,omitempty"`
+	// ZoneIDs restricts the token to these zones; required and non-empty
+	// with ScopeACMEChallenge. acme:challenge-only tokens do not expire
+	// unless ExpiresInDays is set.
+	ZoneIDs []string `json:"zoneIds,omitempty"`
 }
 
 // TokenCreateResult is the answer of Tokens.Create. Token (rdns_...) is
